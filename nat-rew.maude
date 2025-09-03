@@ -1,0 +1,1602 @@
+
+***(%
+
+\subsection{Natural rewriting}
+
+We describe in this section how the natural rewriting strategy has been implemented.
+
+\subsubsection{Matching definitional trees}\label{subsec:mdt}
+
+We describe in this section the main functions used to define and use
+the Matching Definitional Trees.
+
+\begin{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod LAZY-NAT-LIST is
+ pr NAT-LIST .
+
+ sort LazyNatList .
+ ****
+ *** LazyNatList: lazy in the second argument of cons
+ ****
+ op [] : ->  LazyNatList [ctor] .
+ op _:_ : Nat LazyNatList ->  LazyNatList [ctor strat (1 0)] .
+ op from : Nat -> LazyNatList .
+ op take : Nat LazyNatList -> NatList .
+ op drop : Nat LazyNatList -> LazyNatList .
+
+ vars I N N' : Nat .
+ vars Xs Ys : LazyNatList .
+
+ eq from(N) =  N : from(s(N)) .
+ eq take(0, Xs) = nil .
+ eq take(s(I), N : Xs) = N take(I, Xs) .
+ eq drop(0, Xs) = Xs .
+ eq drop(s(I), N : Xs) = drop(I, Xs) .
+endfm
+
+view LazyNatList from TRIV to LAZY-NAT-LIST is
+  sort Elt to LazyNatList .
+endv
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+The module \verb"MDT" defines the Matching Definitional Tree \cite{escobar04}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod MDT is
+ pr META-LEVEL .
+
+ sorts MDT Forest Branch .
+ subsort MDT < Forest .
+
+***(%
+\end{verbatim}
+}
+
+A \verb"Forest" is just a juxtaposition of trees, where \verb"empty" stands
+for the empty forest.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op empty : -> Forest [ctor] .
+ op __ : Forest Forest -> Forest [ctor assoc id: empty] .
+
+***(%
+\end{verbatim}
+}
+
+We distinguish between the \verb"empty" branch, a branch composed of a list of
+natural numbers (indicating a position) and a forest of definitional trees, and
+the juxtaposition of branches:
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op empty : -> Branch [ctor] .
+ op <_,_> : NatList Forest -> Branch [ctor] .
+ op __ : Branch Branch -> Branch [ctor assoc id: empty] .
+
+***(%
+\end{verbatim}
+}
+
+Finally, we define \verb"or" tree, that receives a forest of
+trees; the \verb"leaf" tree, that receives a term standing for a pattern
+and a rule; and a \verb"branch" tree, which also receives a pattern and
+a branch:
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op or : Forest -> MDT [ctor] .
+ op leaf : Term Rule -> MDT [ctor] .
+ op branch : Term Branch -> MDT [ctor] .
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\begin{comment}
+
+We create views from \verb"TRIV" to \verb"MDT" mapping \verb"Elt"
+to the sorts defined there, in order to instantiate different parameterized modules:
+
+{\codesize
+\begin{verbatim}
+%)
+
+view Mdt from TRIV to MDT is
+  sort Elt to MDT .
+endv
+
+view Branch from TRIV to MDT is
+  sort Elt to Branch .
+endv
+
+view Forest from TRIV to MDT is
+  sort Elt to Forest .
+endv
+
+view Term from TRIV to META-TERM is
+   sort Elt to Term .
+endv
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+\begin{comment}
+
+The module \verb"VAR-POS" defines pairs of variables and
+lists of natural numbers, that are then used to define a view
+from the \verb"TRIV" view:
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod VAR-POS is
+ pr NAT-LIST .
+ pr META-TERM .
+
+ sort VarPos .
+ op _._ : Variable NatList -> VarPos .
+endfm
+
+view VarPos from TRIV to VAR-POS is
+  sort Elt to VarPos .
+endv
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+\subsubsection{Matching tree}
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod MATCHING-TREE is
+ pr MODULE-CONSTRAINTS .
+ pr SET{Pos} .
+ pr MULTISET{Pos} .
+ pr MAP{Qid, Nat} .
+ pr CONVERSION .
+ pr LAZY-NAT-LIST .
+ pr MDT .
+ pr PAIR{LazyNatList, Branch} .
+ pr PAIR{LazyNatList, Mdt} .
+ --- para simular las parejas
+ pr MAP{Forest, LazyNatList} .
+ pr PAIR{RuleSet, RuleSet} .
+ pr MAP{Qid, Mdt} .
+ pr PAIR{LazyNatList, Term} .
+--- Using
+--- pr SET{Var} .
+--- pr SET{Term} .
+
+ ****
+ *** Term manipulation
+ ****
+ *** returns the signature deduced for a given program
+ op signature : RuleSet -> QidSet .
+ *** returns the set of constructor symbols deduced for a given program
+ op cs : RuleSet -> QidSet .
+ *** returns the set of function symbols deduced for a given program
+ op fs : RuleSet -> QidSet .
+   *** returns the set of elements of the signature that are used in the given term
+   op symbols : Term -> QidSet .
+   op symbolss : TermList -> QidSet .
+ op lhs : Rule -> Term .
+ --- for function symbols and constructor symbols present in lhss only!
+ op arity : RuleSet -> Map{Qid, Nat} .
+ --- set of rules for the given function symbol
+ op rulesOf : Qid RuleSet -> RuleSet .
+ op positions : Term -> Set{Pos} .
+    op posI : Nat TermList -> Set{Pos} .
+    op mapAppendSet : NatList Set{Pos} -> Set{Pos} .
+ *** Positions of variables
+ op positionsVar : Term -> Set{Pos} .
+    op filtPosVar : Term Set{Pos} -> Set{Pos} .
+ *** Positions of terms rooted by some element of the signature
+ op positionsSigma : Term -> Set{Pos} .
+ *** Positions of constructor rooted terms
+ op positionsCS : QidSet Term -> Set{Pos} .
+    op filtPosCS : QidSet Term Set{Pos} -> Set{Pos} .
+ op at : Term NatList -> Term .
+ op isPrefix : NatList NatList -> Bool .
+ op minimalPos : Set{Pos} -> Set{Pos} .
+
+ *** indexing from 0
+ op nth : Nat TermList -> Term .
+ op root : Term -> Qid .
+ op replace : Term NatList Term -> Term .
+ op apSubst : Substitution Term -> Term .
+ op flatApp : LazyNatList Map{Qid, Nat} Qid -> Pair{LazyNatList, Term} .
+
+ ****
+ *** Tree construction
+ ****
+ op treeVar : Nat -> Variable .
+ *** Builds a mapping from any function of the program to its corresponding tree
+ op MDTMap : Module -> Map{Qid, Mdt} .
+   **** Builds the tree for a given function symbol
+ op constructMDTF : Module LazyNatList Map{Qid, Nat} Qid RuleSet -> Pair{LazyNatList, Mdt} .
+   **** Builds the tree for a given call pattern
+ op constructMDT : Module LazyNatList Map{Qid, Nat} Term RuleSet -> Pair{LazyNatList, Mdt} .
+
+
+ op disagreementPos : Term Term -> Set{Pos} .
+   op filtDisagree : Term Term Set{Pos} -> Set{Pos} .
+ op DPl : QidSet Term Term -> Set{Pos} .
+ op DPR : RuleSet Term -> Mset{Pos} .
+   op DPRAux : QidSet RuleSet Term -> Mset{Pos} .
+ op DPRm : RuleSet Term -> Set{Pos} .
+   op filtDPRm : Set{Pos} Set{Pos} Mset{Pos} RuleSet QidSet Term -> Set{Pos} .
+
+***(%
+\end{verbatim}
+}
+
+\begin{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+ vars Rs Rs' Ss : RuleSet .
+ var  R : Rule .
+ vars H F C : Qid .
+ vars CS FS : QidSet .
+ vars TL TL' : TermList .
+ vars T T' Pat Pat' Pat'' Left : Term .
+ var  AtS : AttrSet .
+ var  Ct : Constant .
+ var  V V' : Variable .
+ vars I N N' : Nat .
+ var O P : NatList .
+ var Os Ps : Set{Pos} .
+ var Oss Pss : Mset{Pos} .
+ vars Ar Ar' : Map{Qid, Nat} .
+ vars Xs Ys Xs' Ys' : LazyNatList .
+ var Tm : Map{Qid, Mdt} .
+ vars Tree Tree' : MDT .
+ vars For For' : Forest .
+ vars Br Br' : Branch .
+ vars Sigma Theta : Substitution .
+ var M : Module .
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+ --- assuming well formed expressions and programs
+ --- red symbols('s['z.Exp]) .
+ eq symbols(V) = none .
+ eq symbols(Ct) = Ct .
+ eq symbols(H [ TL ]) = H ; symbolss(TL) .
+ eq symbolss(empty) = none .
+ eq symbolss((T, TL)) =  symbols(T) ; symbolss(TL) .
+ --- red signature(rl 'f['X:Exp] => 'h['X:Exp] [none] .) .
+ eq signature(Rs) = signature*(Rs) \ ('let_in_ ; '_`,_ ; '_=_) .
+ op signature* : RuleSet -> QidSet .
+ eq signature*(none) = none .
+ eq signature*((rl T => T' [ AtS ] .) Rs) = symbols(T) ; symbols(T') ; signature*(Rs) .
+ ---  red fs((rl 'f['X:Exp] => 'h['X:Exp] [none] .) (rl 'h['z.Exp] => 's['z.Exp] [none] .)) .
+ eq fs(none) = none .
+ eq fs(R Rs) = root(lhs(R)) ; fs(Rs) .
+ --- red cs((rl 'f['X:Exp] => 'h['X:Exp] [none] .) (rl 'h['z.Exp] => 's['z.Exp] [none] .)) .
+ eq cs(Rs) = signature(Rs) \ fs(Rs) .
+ eq lhs(rl T => T' [ AtS ] .) = T .
+
+ --- red arity(( rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .) (rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .) (rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .)) .
+ eq arity(none) = empty .
+--- eq arity(((rl Ct => T' [ AtS ] .) Rs)) = insert(Ct, 0 , arity(Rs)) .
+ eq arity(((rl Ct => T' [ AtS ] .) Rs)) = arityAux(T', insert(Ct, 0 , arity(Rs))) .
+--- eq arity(((rl (F [ TL ]) => T' [ AtS ] .) Rs)) = arityAux(TL, insert(F , lengthTL(TL) , arity(Rs)) ).
+ eq arity(((rl (F [ TL ]) => T' [ AtS ] .) Rs)) = arityAux(T', arityAux(TL, insert(F , lengthTL(TL) , arity(Rs)) )) .
+  op arityAux : TermList Map{Qid, Nat} -> Map{Qid, Nat} .
+  eq arityAux(empty, Ar) = Ar .
+  eq arityAux((T, TL), Ar) = if isVar(T) then arityAux(TL, Ar)
+                                         else insert(root(T), arityTerm(T), arityAux(TL, arityAux(args(T), Ar)))
+                             fi .
+  op arityTerm : Term -> Nat .
+  eq arityTerm(F [ TL ]) = lengthTL(TL) .
+  eq arityTerm(T) = 0 [owise] .
+  op args : Term -> TermList .
+  eq args(V) = empty .
+  eq args(Ct) = empty .
+  eq args((F [ TL ] )) = TL .
+  op lengthTL : TermList -> Nat .
+  eq lengthTL(empty) = 0 .
+  eq lengthTL((T, TL)) = 1 + lengthTL(TL) .
+ eq rulesOf(F, none) = none .
+ eq rulesOf(F, (rl Ct => T' [ AtS ] .) Rs) = if F == Ct then (rl Ct => T' [ AtS ] .) else none fi rulesOf(F, Rs) .
+ eq rulesOf(F, (rl (H [ TL ]) => T' [ AtS ] .) Rs) = if F == H then (rl (H [ TL ]) => T' [ AtS ] .) else none fi rulesOf(F, Rs) .
+
+
+ --- red mapAppendSet((0 1 nil), ((2 3) , (3 4), empty)) .
+ eq mapAppendSet(O, empty) = empty .
+ eq mapAppendSet(O, (P, Ps)) = (O P) , mapAppendSet(O, Ps) .
+ --- red positions('g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]]) .
+ eq positions(V) = nil .
+ eq positions(Ct) = nil .
+ eq positions(H [ TL ]) = nil , posI(1, TL) .
+    eq posI(I, empty) = empty .
+    eq posI(I, (T, TL)) = mapAppendSet(I, positions(T)) , posI((I + 1), TL) .
+ --- red positionsVar('g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]]) .
+ eq positionsVar(T) = filtPosVar(T, positions(T)) .
+    eq filtPosVar(T, empty) = empty .
+    eq filtPosVar(T, (P, Ps)) = if isVar(at(T, P)) then P  else empty fi , filtPosVar(T, Ps) .
+ ---  red positionsCS('h ; 'c ; 'f, 'g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]]) .
+ eq positionsCS(CS, T) = filtPosCS(CS, T, positions(T)) .
+    eq filtPosCS(CS, T, empty) = empty .
+    eq filtPosCS(CS, T, (P, Ps)) = if (root(at(T, P)) in CS) then P  else empty fi , filtPosCS(CS, T, Ps) .
+ --- red positionsSigma('g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]]) .
+ eq positionsSigma(T) = positions(T) \ positionsVar(T) .
+
+
+ eq nth(0, (T , TL)) = T .
+ eq nth(s(I), (T, TL)) = nth(I, TL) .
+
+ eq isPrefix(nil, P) = true .
+ eq isPrefix((N O), (N P)) = isPrefix(O, P) .
+ eq isPrefix(O,P) = false [owise] .
+
+ eq minimalPos(Os) = minimalPosAux(Os, Os) .
+ op minimalPosAux : Set{Pos} Set{Pos} -> Set{Pos} .
+ eq minimalPosAux(empty, Ps) = empty .
+ eq minimalPosAux((O, Os), Ps) = if minimalIn(O, Ps) then O else empty fi , minimalPosAux(Os, Ps) .
+   op minimalIn : NatList Set{Pos} -> Bool .
+   eq minimalIn(O, empty) = true .
+   eq minimalIn(O, (O, Ps)) = minimalIn(O, Ps) .
+   eq minimalIn(O, (P, Ps)) = if isPrefix(P, O) then false else minimalIn(O, Ps) fi [owise] .
+
+ --- red at('g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]], 2 1) .
+ eq at(T, nil) = T .
+ eq at(H [ TL ], (s(I) P)) = at(nth(I , TL), P) .
+
+ --- red root(at('g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]], 2 1)) .
+ eq root(V) = V .
+ eq root(Ct) = Ct .
+ eq root(H [ TL ]) = H .
+
+ eq replace(T, nil, T') = T' .
+ eq replace(H [ TL ], s(I) O, T') = H [ replaceTL(TL, I, replace(nth(I, TL), O, T')) ] .
+   *** indexing from 0
+   op replaceTL : TermList Nat Term -> TermList .
+   eq replaceTL((T, TL), 0, T') = T' , TL .
+   eq replaceTL((T, TL), s(I), T') = T , replaceTL(TL, I, T') .
+
+ --- red apSubst('X:Exp <- 'tt.Exp ; 'Y:Exp <- 'tt.Exp, 'c ['X:Exp]) .
+ eq apSubst(none, T)= T .
+ eq apSubst((V <- T) ; Sigma , V') = if V == V' then T else apSubst(Sigma , V') fi .
+ eq apSubst(Sigma, Ct) = Ct .
+ eq apSubst(Sigma, H [ TL ]) = H [ mapApSubst(Sigma, TL) ] .
+  op mapApSubst : Substitution TermList -> TermList .
+  eq mapApSubst(Sigma, empty) = empty .
+  eq mapApSubst(Sigma, (T, TL)) = apSubst(Sigma, T) , mapApSubst(Sigma, TL) .
+  --- Usar nubTL para simular cjtos
+  --- For a given set of vars returns the part of the substitution which has its domain contained in that
+  --- set and besides has only variables in its range
+  op getRenaming : TermList Substitution -> Substitution .
+  eq getRenaming(empty, Sigma) = none .
+  eq getRenaming((V, TL), Sigma) = getRenamingVar(V, Sigma) ; getRenaming(TL, Sigma) .
+  op getRenamingVar : Variable Substitution -> Substitution .
+  eq getRenamingVar(V, none) = none .
+  eq getRenamingVar(V, (V <- T) ; Sigma) = if isVar(T) then (V <- T) else none fi .
+  eq getRenamingVar(V, Sigma) = none [owise] .
+
+  --- main: en unifyingRules despues de unificar usar reverseRenaming(getVars(Pat), Sigma,  Left), tb con el lado dcho
+  op reverseRenamingTotal : Substitution Term -> Term .
+  ceq reverseRenamingTotal(Sigma, T) = apSubst(reverseRenamingAux(Theta), apSubst(Sigma, T))
+    if Theta := getRenamingTotal(Sigma) .
+
+  op getRenamingTotal : Substitution -> Substitution .
+  eq getRenamingTotal(none) = none .
+  eq getRenamingTotal((V <- T) ; Sigma) = if isVar(T) then (V <- T) else none fi ; getRenamingTotal(Sigma) .
+
+  op reverseRenaming : TermList Substitution Term -> Term .
+  ceq reverseRenaming(TL, Sigma, T) = apSubst(reverseRenamingAux(Theta), apSubst(Sigma, T))
+    if Theta := getRenaming(nubTL(TL), Sigma) .
+  op reverseRenamingAux : Substitution -> Substitution .
+  eq reverseRenamingAux(none) = none .
+  eq reverseRenamingAux((V <- V') ; Sigma) = (V' <- V) ; reverseRenamingAux(Sigma) .
+
+ eq flatApp(Xs, Ar, H) = if Ar [H] <= 0 then < Xs, H > else < drop(Ar [H] , Xs) , H [mapTreeVars(take(Ar [ H ], Xs))] > fi .
+
+ eq treeVar(I) =  qid("V#@$T" + string(I, 10) + ":Exp") .
+ op nTreeVars : Nat Nat -> TermList .
+ eq nTreeVars(I, 0) = empty .
+ eq nTreeVars(I, s(N)) = treeVar(I), nTreeVars(s(I), N) .
+ --- red mapTreeVars(take(20, from(0))) .
+ op mapTreeVars : NatList -> TermList .
+ eq mapTreeVars(nil) = empty .
+ eq mapTreeVars((I O)) = treeVar(I) , mapTreeVars(O) .
+
+ ---  red disagreementPos('b['ff.Exp,'X:Exp, 'tt.Exp], 'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp]) .
+--- BIGBUG eq disagreementPos(Left, Pat) = filtDisagree(Left, Pat, intersection(positionsSigma(Left), positionsSigma(Pat))) .
+ eq disagreementPos(Left, Pat) = minimalPos(filtDisagree(Left, Pat, intersection(positionsSigma(Left), positions(Pat)))) .
+--- filtDisagree(Left, Pat, intersection(positionsSigma(Left), positions(Pat))) .
+    eq filtDisagree(Left, Pat, empty) = empty .
+    eq filtDisagree(Left, Pat, (P, Ps)) = if root(at(Left, P)) ==  root(at(Pat, P)) then empty else P fi ,  filtDisagree(Left, Pat, Ps) .
+
+ --- red DPl('tt.Exp ; 'ff.Exp, 'b['tt.Exp,'ff.Exp,'X:Exp], 'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp]) .
+ --- red DPl('tt.Exp ; 'ff.Exp, 'b['ff.Exp,'X:Exp, 'tt.Exp], 'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp]) .
+ --- red DPl('tt.Exp ; 'ff.Exp, 'b['X:Exp, 'tt.Exp, 'ff.Exp], 'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp]) .
+--- BIGBUG  ceq DPl(CS, Left, Pat) = if | intersection(Ps, (positionsCS(CS, Pat) , positionsVar(Pat))) | == 0 then Ps else empty fi
+ceq DPl(CS, Left, Pat) = if | intersection(Ps, positionsCS(CS, Pat)) | == 0 then Ps else empty fi
+     if Ps := disagreementPos(Left, Pat) .
+
+ --- red DPR((rl 'b['X:Exp,'t.Exp,'ff.Exp] => 'tt.Exp [none] .) (rl 'b['ff.Exp,'X:Exp,'tt.Exp] => 'tt.Exp [none] .) (rl 'b['tt.Exp,'ff.Exp,'X:Exp] => 'tt.Exp [none] .) ,  'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp] ) .
+ --- red DPR((rl 'b['X:Exp,'t.Exp,'ff.Exp] => 'tt.Exp [none] .) (rl 'b['ff.Exp,'X:Exp,'tt.Exp] => 'tt.Exp [none] .) (rl 'b['tt.Exp,'ff.Exp,'X:Exp] => 'tt.Exp [none] .) (rl 'f['X:Exp] => 'h['X:Exp] [none] .) (rl 'g['X:Exp,'Y:Exp] => 'g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]] [none] .) (rl 'h['z.Exp] => 's['z.Exp] [none] .),  'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp] ) .
+ eq DPR(Rs, Pat) = DPRAux(cs(Rs), Rs, Pat) .
+ eq DPRAux(CS, none, Pat) = emptyMS .
+ eq DPRAux(CS, (rl Left => T [ AtS ] .) Rs, Pat) = if root(Left) == root(Pat) then setToMultiset(DPl(CS, Left, Pat)) else emptyMS fi . DPRAux(CS, Rs, Pat) .
+
+ --- red DPRm((rl 'b['X:Exp,'t.Exp,'ff.Exp] => 'tt.Exp [none] .) (rl 'b['ff.Exp,'X:Exp,'tt.Exp] => 'tt.Exp [none] .) (rl 'b['tt.Exp,'ff.Exp,'X:Exp] => 'tt.Exp [none] .) (rl 'f['X:Exp] => 'h['X:Exp] [none] .) (rl 'g['X:Exp,'Y:Exp] => 'g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]] [none] .) (rl 'h['z.Exp] => 's['z.Exp] [none] .),  'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp] ) .
+ --- red DPRm( ( rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .) (rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .) (rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .), 'or ['or ['tt.Exp, 'ff.Exp], 'or ['tt.Exp, 'ff.Exp] ]) .
+ ceq DPRm(Rs, Pat) = filtDPRm(Os, Os, Oss, Rs, cs(Rs), Pat)
+   if Oss := DPR(Rs, Pat) /\ Os := multisetToSet(Oss) .
+ eq filtDPRm(empty, Ps, Pss, Rs, CS, Pat) = empty .
+ eq filtDPRm((O , Os), Ps, Pss, Rs, CS, Pat) = if OkDPRm(O, Ps, Pss, Rs, CS, Pat) then O else empty fi , filtDPRm(Os, Ps, Pss, Rs, CS, Pat) .
+    op OkDPRm : NatList Set{Pos} Mset{Pos} RuleSet QidSet Term -> Bool .
+      eq OkDPRm(O, Ps, Pss, none, CS, Pat) = false .
+      eq OkDPRm(O, Ps, Pss, (rl Left => T [ AtS ] .) Rs, CS, Pat) = if O in DPl(CS, Left, Pat)
+                                                                   then if biggerDPRm(O, Ps, Pss, Left)
+                                                                              then true else OkDPRm(O, Ps, Pss, Rs, CS, Pat) fi
+                                                                   else OkDPRm(O, Ps, Pss, Rs, CS, Pat) fi .
+      op biggerDPRm : NatList Set{Pos} Mset{Pos} Term -> Bool .
+       eq biggerDPRm(O, empty, Pss, Left) = true .
+       eq biggerDPRm(O, (P,  Ps), Pss, Left) = if (mult(O, Pss) >= mult(P, Pss) or isVar(at(Left, P)))
+                                                       then biggerDPRm(O, Ps, Pss, Left)
+                                                    else false
+                                               fi  .
+
+
+**** Construyendo el arbol
+ ceq MDTMap(M) = MDTMapAux(M, from(0), fs(Rs), arity(Rs), Rs, empty)
+   if Rs := getRls(M) .
+ op MDTMapAux : Module LazyNatList QidSet Map{Qid, Nat} RuleSet Map{Qid, Mdt} -> Map{Qid, Mdt} .
+ eq MDTMapAux(M, Xs, none, Ar, Rs, Tm) = Tm .
+ ceq MDTMapAux(M, Xs, (F ; FS), Ar, Rs, Tm) = MDTMapAux(M, Ys, FS, Ar, Rs, insert(F, Tree, Tm))
+   if < Ys, Tree > := constructMDTF(M, Xs, Ar, F, Rs) .
+
+   **** Builds the tree for a given function symbol
+ ceq constructMDTF(M, Xs, Ar, F, Rs) = constructMDT(M, Ys, Ar, T, rulesOf(F, Rs))
+   if < Ys, T > := flatApp(Xs, Ar, F) .
+
+   **** Builds the tree for a given call pattern
+--- eq constructMDT(M, Xs, Ar, Pat, none) = < Xs, empty > .
+ ceq constructMDT(M, Xs, Ar, Pat, Rs) =
+    if rsSize(Ss) > 0
+        then constructMDTb(M, Xs, Ar, Pat, Ss, Rs')
+        else constructMDTc(M, Xs, Ar, Pat, Rs)
+    fi
+  if < Ss, Rs' > := matchingRules(M, Pat, Rs) [owise] .
+    op constructMDTb : Module LazyNatList Map{Qid, Nat} Term RuleSet RuleSet -> Pair{LazyNatList, Mdt} .
+    eq constructMDTb(M, Xs, Ar, Pat, Ss, Rs) =
+            if rsSize(Rs) > 0 then constructMDTb1(M, Xs, Ar, Pat, Ss, Rs)
+                              else constructMDTb2(Xs, Pat, Ss)
+            fi [ print "--->constructMDTb, patron " Pat ", matching rules " Ss ", non-mathing rules " Rs ] .
+
+        op constructMDTb1 : Module LazyNatList Map{Qid, Nat} Term RuleSet RuleSet -> Pair{LazyNatList, Mdt} .
+        ceq constructMDTb1(M, Xs, Ar, Pat, Ss, Rs) =  < Ys , or(mapLeaves(Pat, Ss) Tree) >
+         if < Ys , Tree > := constructMDT(M, Xs, Ar, Pat, Rs) .
+
+        op constructMDTb2 : LazyNatList Term RuleSet -> Pair{LazyNatList, Mdt} .
+        eq constructMDTb2(Xs, Pat, Ss) = if rsSize(Ss) > 1 then
+                                            < Xs , or(mapLeaves(Pat, Ss)) >
+                                         else
+                                            < Xs , leaf(Pat, Ss) > fi .
+
+          op mapLeaves : Term RuleSet -> Forest .
+          eq mapLeaves(Pat, none) = empty .
+          eq mapLeaves(Pat, R Rs) =  leaf(Pat, R) mapLeaves(Pat, Rs) .
+
+
+    op constructMDTc : Module LazyNatList Map{Qid, Nat} Term RuleSet -> Pair{LazyNatList, Mdt} .
+    ceq constructMDTc(M, Xs, Ar, Pat, Rs) = < Ys, branch(Pat, Br) >
+      if < Ys , Br > := loopConstructMDTc(M, Xs, Ar, DPRm(Rs, Pat), Pat, Rs) [ print "--->constructMDTc, patron " Pat ", reglas " Rs ] .
+
+      op loopConstructMDTc : Module LazyNatList Map{Qid, Nat} Set{Pos} Term RuleSet -> Pair{LazyNatList, Branch} .
+       eq loopConstructMDTc(M, Xs, Ar, empty, Pat, Rs) = < Xs , empty > .
+       ceq loopConstructMDTc(M, Xs, Ar, (O , Os) , Pat, Rs) = < Xs' , < O , For > Br  >
+---          if (For |->  Ys ) :=  loopPosConstructMDTc(M, Xs, Ar, consAt(Rs, O), O, Pat, Rs)
+                                 --- As we do are one sorted every constructor shares its sort with the others
+          if (For |->  Ys ) :=  loopPosConstructMDTc(M, Xs, Ar, cs(getRls(M)), O, Pat, Rs)
+              /\  < Xs' ,  Br > := loopConstructMDTc(M, Ys, Ar, Os , Pat, Rs) .
+
+      op loopPosConstructMDTc : Module LazyNatList Map{Qid, Nat} QidSet NatList Term RuleSet -> Map{Forest, LazyNatList} .
+      eq loopPosConstructMDTc(M, Xs, Ar, none, O, Pat, Rs) = empty |-> Xs .
+      ceq loopPosConstructMDTc(M, Xs, Ar, (C ; CS), O, Pat, Rs) =
+            if rsSize(Ss) > 0 then loopPosConstructMDTc1(M, Ys, Ar, CS, O, Pat, Rs, Pat', Ss)
+                              else loopPosConstructMDTc2(M, Ys, Ar, CS, O, Pat, Rs)
+            fi
+         if < Ys, T > := flatApp(Xs, Ar, C)
+         /\ Pat' := replace(Pat, O, T)
+         /\ < Ss, Rs' > := unifyingRules(M, Pat', Rs) [ print " loopPosConstructMDTc , patron " Pat' ", constructoras " C " y " CS " y reglas " Rs " unificaron " Ss " y no unificaron " Rs' "\n" ] .
+
+         op loopPosConstructMDTc1 : Module LazyNatList Map{Qid, Nat} QidSet NatList Term RuleSet Term RuleSet -> Map{Forest, LazyNatList} .
+         ceq loopPosConstructMDTc1(M, Ys, Ar, CS, O, Pat, Rs, Pat', Ss) = (Tree For) |-> Xs'
+           if < Ys', Tree > := constructMDT(M, Ys, Ar, Pat', Ss)
+           /\ (For |-> Xs') := loopPosConstructMDTc(M, Ys', Ar, CS, O, Pat, Rs) .
+         op loopPosConstructMDTc2 : Module LazyNatList Map{Qid, Nat} QidSet NatList Term RuleSet -> Map{Forest, LazyNatList} .
+         ceq loopPosConstructMDTc2(M, Ys, Ar, CS, O, Pat, Rs) = For |-> Xs'
+           if (For |-> Xs') := loopPosConstructMDTc(M, Ys, Ar, CS, O, Pat, Rs) [ print " loopPosConstructMDTc , quedan " CS ] .
+
+  op rsSize : RuleSet -> Nat .
+  eq rsSize(none) = 0 .
+  eq rsSize((R Rs)) = 1 + rsSize(Rs) .
+  --- ( Left < Pat, ! Left < Pat )
+  op matchingRules : Module Term RuleSet -> Pair{RuleSet, RuleSet} .
+  eq matchingRules(M, Pat, none) = < none, none > .
+  ceq matchingRules(M, Pat, (rl Left => T' [ AtS ] .) Rs) =
+      if metaMatch(M, Left, Pat, nil, 0) == noMatch
+           then < Rs' , (rl Left => T' [ AtS ] .) Ss >
+           else < (rl Left => T' [ AtS ] .) Rs' , Ss >
+      fi
+    if < Rs' , Ss > := matchingRules(M, Pat, Rs) .
+
+   --- ( Unifying  , ! Unifying )
+   op unifyingRules : Module Term RuleSet -> Pair{RuleSet, RuleSet} .
+   eq unifyingRules(M, Pat, none) = < none, none > .
+   ceq unifyingRules(M, Pat, (rl Left => T' [ AtS ] .) Rs) = < (rl reverseRenamingTotal(Sigma,  Left) => reverseRenamingTotal(Sigma,  T') [ AtS ] .) Rs' , Ss >
+    if { Sigma , I } := metaUnify(M, Left =? Pat, 0, 0)
+    /\ TL := getVars(Left)
+    /\ < Rs' , Ss > := unifyingRules(M, Pat, Rs) [ print "unificando " Left " y " Pat ] .
+
+   ceq unifyingRules(M, Pat, R Rs) = < Rs' , R Ss >
+    if < Rs' , Ss > := unifyingRules(M, Pat, Rs) [owise].
+
+  op consAt : RuleSet NatList -> QidSet .
+  eq consAt(none, O) = none .
+  ceq consAt((rl Left => T' [ AtS ] .) Rs, O) = if isVar(H) then consAt(Rs, O)
+                                                            else (H ; consAt(Rs, O)) fi
+      if H := root(at(Left, O)) .
+
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\subsubsection{Heap}\label{subsubsec:imp:heap}
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod HEAP is
+ pr META-OPS .
+ pr PAIR{Term, VarPos} .
+ pr PAIR{Nat, TermList} .
+ pr CONVERSION .
+
+***(%
+\end{verbatim}
+}
+
+\begin{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+ vars SB NewSB : Substitution .
+ vars V X Y Z Rp Xp Yp Zp : Variable .
+ vars T T' e : Term .
+ vars TL VL FreshVars : TermList .
+ var  H : Heap .
+ vars N N' i : Nat .
+ vars o q : NatList .
+ var  Q : Qid .
+ vars FS QS : QidSet .
+ var  Ct : Constant .
+ var  VP : VarPos .
+ var  M : Module .
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+A \verb"Heap"
+
+{\codesize
+\begin{verbatim}
+%)
+
+ sort Heap .
+ op [_,_,_,_] : Substitution Variable QidSet Nat -> Heap [ctor] .
+
+ op _[_] : Heap Variable ~> Term .
+ eq [Xp <- T ; SB, Rp, FS, N][Xp] = T .
+
+ op getRootValue : Heap -> Term .
+ eq getRootValue([Rp <- T ; SB, Rp, FS, N]) = T .
+
+ op getFS : Heap -> QidSet .
+ eq getFS([SB, Rp, FS, N]) = FS .
+
+ op getRootVar : Heap -> Variable .
+ eq getRootVar([SB, Rp, FS, N]) = Rp .
+
+ op heapVar : Nat -> Variable .
+ eq heapVar(N) = qid("$@%&H" + string(N, 10) + ":Exp") .
+
+ op heapVars : Nat Nat -> TermList .
+ eq heapVars(N, 1) = heapVar(N) .
+ eq heapVars(N, s(s(N'))) = heapVar(N), heapVars(s(N), s(N')) .
+
+ op pvar? : Term -> Bool .
+ eq pvar?(X) = substr(string(getName(X)), 0, 5) == "$@%&H" .
+ eq pvar?(T) = false [owise] .
+
+ op fvar? : Variable -> Bool .
+ eq fvar?(X) = not pvar?(X) .
+
+ op Gamma* : Heap Variable -> Pair{Term, VarPos} .
+ ceq Gamma*(H, Xp) = < H[Xp], Xp . nil >
+  if not pvar?(H[Xp]) .
+ eq Gamma*(H, Xp) = Gamma*(H, H[Xp]) [owise] .
+
+ sort HeapTriple .
+ op (_,_,_) : Heap Term VarPos -> HeapTriple .
+
+ op _|_ : Heap VarPos -> Pair{Term, VarPos} .
+ op _|_ : HeapTriple NatList -> Pair{Term, VarPos} .
+
+ eq H | Xp . o = (H, H[Xp], Xp . nil) | o .
+ ceq (H, e, Xp . q) | nil = Gamma*(H, e)
+  if pvar?(e) .
+ eq (H, e, Xp . q) | nil = < e, Xp . q > .
+ ceq (H, Q[TL], Xp . q) | i o = (H, e, Zp . nil) | o
+  if Yp := get(TL, i) /\
+     pvar?(Yp) /\
+     < e, Zp . nil > := Gamma*(H, Yp) .
+ eq (H, Q[TL], Xp . q) | i o = (H, get(TL, i), Xp . q i) | o [owise] .
+
+ op unravel : Heap Term -> Term .
+ ceq unravel(H, X) = X
+  if fvar?(X) .
+ ceq unravel(H, Xp) = unravel(H, H[Xp])
+  if pvar?(Xp) .
+ eq unravel(H, Q[TL]) = Q[unravel*(H, TL)] .
+ eq unravel(H, Ct) = Ct .
+
+ ceq [bindC1] : [Xp <- Ct ; SB, Rp, FS, N] = [substitute(SB, Xp, Ct), Rp, FS, N]
+  if Xp =/= Rp /\
+     not in?(Ct, FS) .
+
+ ceq [bindC2] : [Xp <- Q[TL] ; SB, Rp, FS, N] =
+                             [substitute(SB ; NewSB, Xp, Q[FreshVars]), Rp, FS, N + N']
+  if Xp =/= Rp /\
+     not in?(Q, FS) /\
+     N' := size(TL) /\
+     FreshVars := heapVars(N, N') /\
+     NewSB := newSubs(FreshVars, TL) .
+
+ ceq [bindV] : [Xp <- Z ; SB, Rp, FS, N] = [substitute(SB, Xp, Z), Rp, FS, N]
+  if Xp =/= Rp .
+
+ ceq [trash] : [Xp <- e ; SB, Rp, FS, N] = [SB, Rp, FS, N]
+  if TL := (getVars(SB), Rp) /\
+     not TL contains Xp .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{size} computes the length of a term list.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op size : TermList -> Nat .
+ eq size((T, TL)) = s(size(TL)) .
+ eq size(empty) = 0 .
+
+ op newSubs : TermList TermList ~> Substitution .
+ eq newSubs(empty, empty) = none .
+ eq newSubs((V, VL), (T, TL)) = V <- T ; newSubs(VL, TL) .
+
+ op leftFR : Module Heap Variable -> Pair{Term, VarPos} .
+ op leftFR : Module Heap Term VarPos -> Pair{Term, VarPos} .
+
+ ceq leftFR(M, H, Rp) = leftFR(M, H, e, VP)
+  if < e, VP > := Gamma*(H, Rp) .
+ ceq leftFR(M, H, Yp, VP) = leftFR(M, H, Yp)
+  if pvar?(Yp) .
+ eq leftFR(M, [SB, Rp, Ct ; FS, N], Ct, VP) = < Ct, VP > .
+ eq leftFR(M, [SB, Rp, Q ; FS, N], Q[TL], VP) = < Q[TL], VP > .
+ ceq leftFR(M, H, Q[TL], Xp . o) = leftFR(M, H, T, Xp . o i)
+  if < i, T > := firstNotCtermUnravel(M, H, TL, 1) [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where  \texttt{firstNotCtermUnravel} traverses a list of terms
+looking for the first one that, once unraveled, is a cterm, checked with
+the (meta)function \texttt{cterm} defined in Section \ref{subsec:parsing}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op firstNotCtermUnravel : Module Heap TermList Nat -> Pair{Nat, TermList} .
+ eq firstNotCtermUnravel(M, H, empty, N) = < 1, empty > .
+ eq firstNotCtermUnravel(M, H, (T, TL), N) =
+             if getTerm(metaReduce(M, 'cterm[unravel(H, T)])) == 'true.Bool
+             then firstNotCtermUnravel(M, H, TL, s(N))
+             else < N, T >
+             fi .
+
+ op unravel* : Heap TermList -> TermList .
+ eq unravel*(H, empty) = empty .
+ eq unravel*(H, (T, TL)) = unravel(H, T), unravel*(H, TL) .
+
+ op get : TermList Nat ~> Term .
+ eq get((T, TL), 1) = T .
+ eq get((T, TL), N) = get(TL, sd(N, 1)) [owise] .
+
+ op in? : Qid QidSet -> Bool .
+ eq in?(Q, Q ; QS) = true .
+ eq in?(Q, QS) = false [owise] .
+
+ op hasProdVars : Term -> Bool .
+ op hasProdVars* : TermList -> Bool .
+
+ eq hasProdVars*(empty) = false .
+ eq hasProdVars*((T, TL)) = hasProdVars(T) or-else hasProdVars*(TL) .
+endfm
+
+view PosRulePair from TRIV to PAIR{VarPos, RuleSet} is
+ sort Elt to Pair{VarPos, RuleSet} .
+endv
+
+fmod SEARCH-NODE is
+ pr HEAP .
+
+ sort SearchNode .
+
+ op <_,_,_> : Heap Nat TermList -> SearchNode [ctor] .
+ op <_,_> : Term Nat -> SearchNode [ctor] .
+ op [_,_,_] : Term Nat TermList -> SearchNode [ctor] .
+endfm
+
+view SearchNode from TRIV to SEARCH-NODE is
+ sort Elt to SearchNode .
+endv
+
+view Heap from TRIV to HEAP is
+ sort Elt to Heap .
+endv
+
+view Substitution from TRIV to META-TERM is
+ sort Elt to Substitution .
+endv
+
+***(%
+\end{verbatim}
+}
+
+The module \texttt{NATURAL-REWRITING} uses the matching definitional trees
+described above to evaluate a term.
+
+{\codesize
+\begin{verbatim}
+%)
+
+view Pos4Term from TRIV to NAT-LIST is
+ sort Elt to NatList .
+endv
+
+view PosRulePair4Term from TRIV to PAIR{Pos4Term, RuleSet} is
+ sort Elt to Pair{Pos4Term, RuleSet} .
+endv
+
+fmod NATURAL-REWRITING-TERMS is
+ pr MATCHING-TREE .
+ pr LIST{PosRulePair4Term} .
+ pr LIST{SearchNode} .
+ pr PAIR{Nat, TermList} .
+
+ var  M : Module .
+ vars Q Q' : Qid .
+ vars TL TL' TL'' P : TermList .
+ vars F F' : Forest .
+ vars T T' : Term .
+ var  Ct : Constant .
+ var  R : Rule .
+ vars RS RS' : RuleSet .
+ var  AtS : AttrSet .
+ var  N : Nat .
+ vars NL NL' : NatList .
+ var  A : MDT .
+ var  B : Branch .
+ var  MQM : Map{Qid, Mdt} .
+ var  LPRP : List{PosRulePair4Term} .
+ var  LSN : List{SearchNode} .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{natNext} computes, given a module, a term,
+and a forest of matching definitional trees, the list of possible
+results obtained by evaluating the demanded positions of the term.
+In the first case, if the term to be evaluated is a constant, we
+look for the possible rules that can be applied to it with the
+function \texttt{mt} \cite{escobar04}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op natNext : Module Term -> TermList .
+ eq natNext(M, T) = natNext(M, T, MDTMap(M)) .
+
+ op natNext : Module Term Map{Qid, Mdt} -> TermList .
+ ceq natNext(M, Ct, MQM) = applyIn(M, Ct, LPRP)
+  if LPRP := mt(M, Ct, MQM[Ct], MQM) .
+
+***(%
+\end{verbatim}
+}
+
+If the function symbol is a constructor, we look for the first argument
+that is not a cterm\footnote{If the term is a cterm itself, then no
+further evaluation is possible and the case is treated by the \texttt{otherwise}
+equation below.}, apply \texttt{natNext} to it and the subterm is replaced by
+each one of the result list.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ ceq natNext(M, Q[TL], MQM) = TL''
+  if ctor(getRls(M), Q) /\
+     < N, T > := firstNotCterm(M, TL, 1) /\
+     TL' := natNext(M, T, MQM) /\
+     TL'' := replace(Q[TL], N, TL') .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where the auxiliar functions are defined as follows:
+
+\begin{itemize}
+
+\item The function \texttt{ctor} checks that the term does not appear
+as top symbol of a lefthand side.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op ctor : RuleSet Qid -> Bool .
+ eq ctor(rl Q[TL] => T [AtS] . RS, Q) = false .
+ eq ctor(rl Ct => T [AtS] . RS, Ct) = false .
+*** eq ctor(rl Ct => T [AtS] . RS, Q) = Q == getName(Ct) .
+ eq ctor(RS, Q) = true [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{firstNotCterm} traverses a list of term looking for the first
+one that is a cterm, checked with the (meta)function \texttt{cterm} defined
+in Section \ref{subsec:parsing}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op firstNotCterm : Module TermList Nat -> Pair{Nat, TermList} .
+ eq firstNotCterm(M, empty, N) = < 1, empty > .
+ eq firstNotCterm(M, (T, TL), N) = if getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool
+                                   then firstNotCterm(M, TL, s(N))
+                                   else < N, T >
+                                   fi .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{replace} changes the subterm indicated by the index by each one of
+the terms given list.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op replace : Term Nat TermList -> TermList .
+ op replace* : TermList Nat Term -> TermList .
+
+ eq replace(Q[TL], N, (T, TL')) = Q[replace*(TL, N, T)], replace(Q[TL], N, TL') .
+ eq replace(Q[TL], N, empty) = empty .
+
+ eq replace*(empty, N, T) = empty .
+ eq replace*((T, TL), s(s(N)), T') = T, replace*(TL, s(N), T') .
+ eq replace*((T, TL), 1, T') = T', TL .
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+
+If the term has a function symbol at top we compute the list of
+positions and rules that can be applied by means of the function
+\texttt{mt}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ ceq natNext(M, Q[TL], MQM) = applyIn(M, Q[TL], LPRP)
+  if not ctor(getRls(M), Q) /\
+     LPRP := mt(M, Q[TL], MQM[Q], MQM) .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where \texttt{applyIn} applies the rules given in the list in
+the corresponding positions.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op applyIn : Module Term List{PosRulePair4Term} -> TermList .
+ op applyIn : Module Term NatList Qid -> Term .
+ op applyIn* : Module TermList NatList Qid -> TermList .
+
+ eq applyIn(M, T, < NL, R > LPRP) = applyIn(M, T, NL, getLabel(R)), applyIn(M, T, LPRP) .
+ eq applyIn(M, T, nil) = empty .
+
+ ceq applyIn(M, T, nil, Q) = T'
+  if T' := getTerm(metaXapply(M, T, Q, none, 0, unbounded, 0)) .
+ ceq applyIn(M, T, nil, Q) = empty
+  if metaXapply(M, T, Q, none, 0, unbounded, 0) == failure .
+ ceq applyIn(M, Q[TL], NL, Q') = if TL' == empty
+                                 then empty
+                                 else Q[TL']
+                                 fi
+  if TL' := applyIn*(M, TL, NL, Q') [owise] .
+
+ eq applyIn*(M, (T, TL), 1 NL, Q) = applyIn(M, T, NL, Q), TL .
+ eq applyIn*(M, (T, TL), s(s(N)) NL, Q) = T, applyIn*(M, TL, s(N) NL, Q) .
+
+ op getLabel : Rule ~> Qid .
+ eq getLabel(rl T => T' [label(Q) AtS] .) = Q .
+
+***(%
+\end{verbatim}
+}
+
+In other case, the term cannot evolve and the functions returns the empty list
+of terms.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ eq natNext(M, T, MQM) = empty [owise] .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{mt} \cite{escobar04} returns a list of pairs with the
+needed positions and the rules that must be applied in each of them. If the
+tree is a single leaf, the rule in this leaf must be applied at top.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op mt : Module Term MDT Map{Qid, Mdt} -> List{PosRulePair4Term} .
+ eq mt(M, T, leaf(T', R), MQM) = < nil, R > .
+
+***(%
+\end{verbatim}
+}
+
+If the tree is an or node, we check all the possible results from the forest
+with the function \texttt{allRulesOr}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ eq mt(M, T, or(F), MQM) = allRulesOr(M, T, F, MQM) .
+
+***(%
+\end{verbatim}
+}
+
+If the tree is a branch node, one of the subterms in the indicated
+positions of the term has a constructor symbol at top, and the pattern
+of at least one of the trees corresponding to this position matches the
+subterm, then we continue with these trees.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ ceq mt(M, T, branch(T', B), MQM) = mt*(M, T, F, MQM)
+  if < NL, F > := firstCtor(M, T, B) .
+
+ op mt* : Module Term Forest Map{Qid, Mdt} -> List{PosRulePair4Term} .
+ eq mt*(M, T, empty, MQM) = nil .
+ eq mt*(M, T, A F, MQM) = mt(M, T, A, MQM) mt*(M, T, F, MQM) .
+
+***(%
+\end{verbatim}
+}
+
+In other case, the functions selects the first position indicated by the tree,
+and continues the search with this term, composing the resulting positions with
+the function \texttt{newList}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ ceq mt(M, T, branch(T', < NL, F > B), MQM) = newList(NL, LPRP)
+  if empty == firstCtor(M, T, B) /\
+     LPRP := mt(M, getTerm(T, NL), MQM[root(getTerm(T, NL))], MQM) .
+ eq mt(M, T, A, MQM) = nil [owise] .
+
+ op newList : NatList List{PosRulePair4Term} -> List{PosRulePair4Term} .
+ eq newList(NL, nil) = nil .
+ eq newList(NL, < NL', R > LPRP) = < NL NL', R > newList(NL, LPRP) .
+
+***(%
+\end{verbatim}
+}
+
+
+
+{\codesize
+\begin{comment}
+%)
+
+ op allRulesOr : Module Term Forest Map{Qid, Mdt} -> List{PosRulePair4Term} .
+ eq allRulesOr(M, T, empty, MQM) = nil .
+ eq allRulesOr(M, T, A F, MQM) = mt(M, T, A, MQM) allRulesOr(M, T, F, MQM) .
+
+ op firstCtor : Module Term Branch -> Branch .
+ eq firstCtor(M, T, empty) = empty .
+ ceq firstCtor(M, T, < NL, F > B) = < NL, F' >
+  if ctor(getRls(M), root(getTerm(T, NL))) /\
+     F' := getMatchs(M, T, F) /\
+     F' =/= empty .
+ eq firstCtor(M, T, < NL, F > B) = firstCtor(M, T, B) [owise] .
+
+ op getMatchs : Module Term Forest -> Forest .
+ eq getMatchs(M, T, empty) = empty .
+ eq getMatchs(M, T, A F) = if metaMatch(M, pattern(A), T, nil, 0) =/= noMatch
+                           then A
+                           else empty
+                           fi
+                           getMatchs(M, T, F) .
+
+ op getTerm : Term NatList -> Term .
+ eq getTerm(T, nil) = T .
+ eq getTerm(Q[TL], N NL) = getTerm*(TL, N NL) .
+
+ op getTerm* : TermList NatList -> Term .
+ eq getTerm*((T, TL), 1 NL) = getTerm(T, NL) .
+ eq getTerm*((T, TL), s(s(N)) NL) = getTerm*(TL, s(N) NL) .
+
+ op pattern : MDT -> Term .
+ eq pattern(leaf(T, R)) = T .
+ eq pattern(or(A F)) = pattern(A) .
+ eq pattern(branch(T, B)) = T .
+
+***(%
+\end{comment}
+}
+
+Finally, another function \verb"natNext", that only receives a
+module and the term to be reduced, invokes the function \verb"natNext"
+computing first the definitional trees with \verb"MDTMap":
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op natNext : Module Term -> TermList .
+ eq natNext(M, T) = natNext(M, T, MDTMap(M)) .
+endfm
+
+fmod NATURAL-REWRITING is
+ pr PAIR{Substitution, Substitution} * (sort Pair{Substitution, Substitution} to SubsPair) .
+ pr NATURAL-REWRITING-TERMS .
+ pr LIST{PosRulePair} .
+ pr LIST{SearchNode} .
+ pr MATCHING-TREE .
+ pr LIST{Heap} .
+ pr HEAP .
+
+***(%
+\end{verbatim}
+}
+
+\begin{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+ var  M : Module .
+ vars Q Q' : Qid .
+ vars TL TL' TL'' P FreshVars : TermList .
+ vars F F' : Forest .
+ vars T T' T1 T2 T3 T4 E : Term .
+ var  Ct : Constant .
+ var  R : Rule .
+ vars RS RS' : RuleSet .
+ var  AtS : AttrSet .
+ vars N N' : Nat .
+ vars NL NL' : NatList .
+ var  A : MDT .
+ var  B : Branch .
+ var  MQM : Map{Qid, Mdt} .
+ var  LPRP : List{PosRulePair} .
+ var  LSN : List{SearchNode} .
+ vars VP VP' : VarPos .
+ vars H H' : Heap .
+ vars Rp V : Variable .
+ var  FS : QidSet .
+ vars SB SB' SB1 SB2 : Substitution .
+ var  LH : List{Heap} .
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+The function \texttt{natNext} computes, given a module, a term,
+and a forest of matching definitional trees, the list of possible
+results obtained by evaluating the demanded positions of the term.
+In the first case, if the term to be evaluated is a constant, we
+look for the possible rules that can be applied to it with the
+function \texttt{mt} \cite{escobar04}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op natNext : Module Heap Map{Qid, Mdt} -> List{Heap} .
+ ceq natNext(M, H, MQM) = applyIn(M, H, LPRP)
+  if < T, VP > := leftFR(M, H, getRootVar(H)) /\
+     LPRP := mt(M, H, VP, T, MQM[root(T)], MQM) .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where the auxiliar functions are defined as follows:
+
+\begin{itemize}
+
+\item The function \texttt{ctor} checks that the term does not appear
+as top symbol of a lefthand side.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op ctor : RuleSet Qid -> Bool .
+ eq ctor(rl Q[TL] => T [AtS] . RS, Q) = false .
+ eq ctor(rl Ct => T [AtS] . RS, Ct) = false .
+ eq ctor(RS, Q) = true [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{firstNotCterm} traverses a list of terms looking for the first
+one that, once unraveled, is a cterm, checked with the (meta)function
+\texttt{cterm} defined in Section \ref{subsec:parsing}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op firstNotCterm : Module TermList Nat -> Pair{Nat, TermList} .
+ eq firstNotCterm(M, empty, N) = < 1, empty > .
+ eq firstNotCterm(M, (T, TL), N) = if getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool
+                                   then firstNotCterm(M, TL, s(N))
+                                   else < N, T >
+                                   fi .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{applyIn} applies the rules given in the list in
+the corresponding positions.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op applyIn : Module Heap List{PosRulePair} -> List{Heap} .
+ op applyIn : Module Term NatList Qid -> Term .
+ op applyIn* : Module TermList NatList Qid -> TermList .
+
+ eq applyIn(M, H, nil) = nil .
+ ceq applyIn(M, H, < VP, rl T => 'let_in_[T1, T2] [AtS] . > LPRP) = H' applyIn(M, H, LPRP)
+  if < T', V . NL > := H | VP /\
+     [SB ; V <- E, Rp, FS, N] := H /\
+     SB' := metaMatch(M, T, T', nil, 0) /\
+     N' := neededVars(T1) /\
+     FreshVars := heapVars(N, N') /\
+     < SB1, SB2 > := createAssignmentLet(FreshVars, T1,  SB') /\
+     T3 := replace(H[V], NL, substitute(T2, SB' ; SB2)) /\
+     H' := [SB ; SB1 ; V <- T3, Rp, FS, N + N'] .
+
+ op replace : Term NatList Term -> Term .
+ eq replace(T, nil, T') = T' .
+ eq replace(Q[TL], NL, T) = Q[replace*(TL, NL, T)] [owise] .
+
+ op replace* : TermList NatList Term -> TermList .
+ eq replace*(empty, NL, T) = empty .
+ eq replace*((T, TL), 1 NL, T') = replace(T, NL, T'), TL .
+ eq replace*((T, TL), s(N) NL, T') = T, replace*(TL, N NL, T') [owise] .
+
+ op neededVars : Term ~> Nat .
+ eq neededVars('_=_[TL]) = 1 .
+ eq neededVars('_`,_[TL]) = size(TL) .
+
+ op createAssignmentLet : TermList Term Substitution ~> SubsPair .
+ op createAssignmentLetAux : TermList TermList Substitution ~> SubsPair .
+
+ eq createAssignmentLet(V, '_=_[T1, T2], SB) = < V <- substitute(T2, SB), T1 <- V ; SB > .
+ eq createAssignmentLet(FreshVars, '_`,_[TL], SB) = createAssignmentLetAux(FreshVars, TL, SB) .
+
+ ceq createAssignmentLetAux((V, FreshVars), ('_=_[T1, T2], TL), SB) =
+                                    < V <- substitute(T2, SB) ; SB1, T1 <- V ; SB2 >
+  if < SB1, SB2 > := createAssignmentLetAux(FreshVars, TL, SB) .
+ eq createAssignmentLetAux(empty, empty, SB) = < none, SB > .
+
+ op getLabel : Rule ~> Qid .
+ eq getLabel(rl T => T' [label(Q) AtS] .) = Q .
+
+ ceq applyIn(M, H, < VP, rl T => T' [AtS] . > LPRP) = H' applyIn(M, H, LPRP)
+  if < T1, V . NL > := H | VP /\
+     [SB ; V <- E, Rp, FS, N] := H /\
+     SB' := metaMatch(M, T, T1, nil, 0) /\
+     T3 := replace(H[V], NL, substitute(T', SB')) /\
+     H' := [SB ; V <- T3, Rp, FS, N] [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+
+In other case, the term cannot evolve and the functions returns the empty list
+of terms.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ eq natNext(M, H, MQM) = nil [owise] .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{mt} \cite{escobar04} returns a list of pairs with the
+needed positions and the rules that must be applied in each of them. If the
+tree is a single leaf, the rule in this leaf must be applied at top.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op mt : Module Heap VarPos Term MDT Map{Qid, Mdt} -> List{PosRulePair} .
+ eq mt(M, H, VP, T, leaf(T', R), MQM) = < VP, R > .
+
+***(%
+\end{verbatim}
+}
+
+If the tree is an or node, we check all the possible results from the forest
+with the function \texttt{allRulesOr}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ eq mt(M, H, VP, T, or(F), MQM) = allRulesOr(M, H, VP, T, F, MQM) .
+
+***(%
+\end{verbatim}
+}
+
+If the tree is a branch node, one of the subterms in the indicated
+positions of the term has a constructor symbol at top, and the pattern
+of at least one of the trees corresponding to this position matches the
+subterm, then we continue with these trees.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ ceq mt(M, H, VP, T, branch(T', B), MQM) = mt*(M, H, VP, T, F, MQM)
+  if < NL, F > := firstCtor(M, H, VP, T, B) .
+
+ op mt* : Module Heap VarPos Term Forest Map{Qid, Mdt} -> List{PosRulePair} .
+ eq mt*(M, H, VP, T, empty, MQM) = nil .
+ eq mt*(M, H, VP, T, A F, MQM) = mt(M, H, VP, T, A, MQM) mt*(M, H, VP, T, F, MQM) .
+
+***(%
+\end{verbatim}
+}
+
+In other case, the functions selects the first position indicated by the tree,
+and continues the search with this term, composing the resulting positions with
+the function \texttt{newList}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ ceq mt(M, H, VP, T, branch(T', < NL, F > B), MQM) = LPRP
+  if empty == firstCtor(M, H, VP, T, B) /\
+     < T1, VP' > := (H, T, VP) | NL /\
+     LPRP := mt(M, H, VP', T1, MQM[root(T1)], MQM) .
+ eq mt(M, H, VP, T, A, MQM) = nil [owise] .
+
+***(%
+\end{verbatim}
+}
+
+
+
+{\codesize
+\begin{comment}
+%)
+
+ op allRulesOr : Module Heap VarPos Term Forest Map{Qid, Mdt} -> List{PosRulePair} .
+ eq allRulesOr(M, H, VP, T, empty, MQM) = nil .
+ eq allRulesOr(M, H, VP, T, A F, MQM) = mt(M, H, VP, T, A, MQM)
+                                        allRulesOr(M, H, VP, T, F, MQM) .
+
+ op firstCtor : Module Heap VarPos Term Branch -> Branch .
+ eq firstCtor(M, H, VP, T, empty) = empty .
+ ceq firstCtor(M, H, VP, T, < NL, F > B) = < NL, F' >
+  if < T', VP' > := (H, T, VP) | NL /\
+     ctor(getRls(M), root(T')) /\
+     F' := getMatchs(M, H, T, F) /\
+     F' =/= empty .
+ eq firstCtor(M, H, VP, T, < NL, F > B) = firstCtor(M, H, VP, T, B) [owise] .
+
+ op getMatchs : Module Heap Term Forest -> Forest .
+ eq getMatchs(M, H, T, empty) = empty .
+ eq getMatchs(M, H, T, A F) = if metaMatch(M, pattern(A), unravel(H, T), nil, 0) == noMatch
+                              then empty
+                              else A
+                              fi
+                              getMatchs(M, H, T, F) .
+
+ op getTerm : Term NatList -> Term .
+ eq getTerm(T, nil) = T .
+ eq getTerm(Q[TL], N NL) = getTerm*(TL, N NL) .
+
+ op getTerm* : TermList NatList -> Term .
+ eq getTerm*((T, TL), 1 NL) = getTerm(T, NL) .
+ eq getTerm*((T, TL), s(s(N)) NL) = getTerm*(TL, s(N) NL) .
+
+ op pattern : MDT -> Term .
+ eq pattern(leaf(T, R)) = T .
+ eq pattern(or(A F)) = pattern(A) .
+ eq pattern(branch(T, B)) = T .
+
+***(%
+\end{comment}
+}
+
+The sort \texttt{Strategy} distinguishes the two possible strategies:
+depth-first and breadth-first.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ sort Strategy .
+ ops depth breadth : -> Strategy [ctor] .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{evaluate} receives a module, forest of matching definitional
+trees, a list of nodes, a list of results already obtained and a strategy,
+and return another list of nodes. The interpretation of these list of nodes depends
+on the strategy selected: if we use the depth-first strategy we consider it as a
+stack, while if we use the breadth first strategy we consider it as a queue.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op evaluate : Module Map{Qid, Mdt} List{SearchNode} TermList Strategy -> List{SearchNode} .
+ eq evaluate(M, MQM, LSN, TL, depth) = developD(M, MQM, LSN, TL) .
+ eq evaluate(M, MQM, LSN, TL, breadth) = developW(M, MQM, LSN, TL) .
+
+***(%
+\end{verbatim}
+}
+
+The depth-first search is performed by \texttt{developD}. While the depth is bigger
+than 0 it develops the first term in the stack and pushes the resultant terms. The
+search finishes when it finds a cterm or the stack is empty.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op developD : Module Map{Qid, Mdt} List{SearchNode} TermList -> List{SearchNode} .
+ eq developD(M, MQM, nil, TL) = nil .
+ ceq developD(M, MQM, < H, 0, P > LSN, TL) = developD(M, MQM, LSN, TL)
+  if T := unravel(H, getRootValue(H)) /\
+     getTerm(metaReduce(M, 'cterm[T])) == 'false.Bool .
+ ceq developD(M, MQM, < H, N, P > LSN, TL) = < H, N, P > LSN
+  if T := unravel(H, getRootValue(H)) /\
+     getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool /\
+     not TL contains T .
+ ceq developD(M, MQM, < H, N, P > LSN, TL) = developD(M, MQM, LSN, TL)
+  if T := unravel(H, getRootValue(H)) /\
+     TL contains T .
+ ceq developD(M, MQM, < H, s(N), P > LSN, TL) = developD(M, MQM, putBoundPath(LH, N, P) LSN,
+          (TL, unravel(H, getRootValue(H))))
+  if not TL contains unravel(H, getRootValue(H)) /\
+     LH := natNext(M, H, MQM) [owise] .
+
+ *** For q-narrowing
+ ceq developD(M, MQM, < T, 0 > LSN, TL) = developD(M, MQM, LSN, TL)
+  if getTerm(metaReduce(M, 'cterm[T])) =/= 'true.Bool .
+ ceq developD(M, MQM, < T, N > LSN, TL) = < T, N > LSN
+  if getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool /\
+     not TL contains T .
+ ceq developD(M, MQM, < T, N > LSN, TL) = developD(M, MQM, LSN, TL)
+  if TL contains T .
+ ceq developD(M, MQM, < T, s(N) > LSN, TL) = developD(M, MQM, putBoundPath(TL', N) LSN, TL)
+  if TL' := natNext(M, T, MQM) [owise] .
+
+ *** For q-narrowing with path
+ ceq developD(M, MQM, [ T, 0, P ] LSN, TL) = developD(M, MQM, LSN, TL)
+  if getTerm(metaReduce(M, 'cterm[T])) =/= 'true.Bool .
+ ceq developD(M, MQM, [ T, N, P ] LSN, TL) = [ T, N, P ] LSN
+  if getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool /\
+     not TL contains T .
+ ceq developD(M, MQM, [ T, N, P ] LSN, TL) = developD(M, MQM, LSN, TL)
+  if TL contains T .
+ ceq developD(M, MQM, [ T, s(N), P ] LSN, TL) =
+                              developD(M, MQM, putBoundPath2(TL', N, P) LSN, TL)
+  if TL' := natNext(M, T, MQM) [owise] .
+
+
+***(%
+\end{verbatim}
+}
+
+\noindent where \texttt{putBound} computes a new list of nodes with the given
+remaining depth.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op putBoundPath : List{Heap} Nat TermList -> List{SearchNode} .
+ eq putBoundPath(nil, N, P) = nil .
+ eq putBoundPath(H LH, N, empty) = < H, N, empty > putBoundPath(LH, N, empty) .
+ eq putBoundPath(H LH, N, P) = < H, N, (P, getRootValue(H)) > putBoundPath(LH, N, P) [owise] .
+
+***(%
+\end{verbatim}
+}
+
+The breadth-first search is done by the function \texttt{developW}. It works as
+the function above, but introducing the new terms generated at the end of the
+list of nodes.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op developW : Module Map{Qid, Mdt} List{SearchNode} TermList -> List{SearchNode} .
+ eq developW(M, MQM, nil, TL) = nil .
+ ceq developW(M, MQM, < H, 0, P > LSN, TL) = developW(M, MQM, LSN, TL)
+  if T := unravel(H, getRootValue(H)) /\
+     getTerm(metaReduce(M, 'cterm[T])) == 'false.Bool .
+ ceq developW(M, MQM, < H, N, P > LSN, TL) = < H, N, P > LSN
+  if T := unravel(H, getRootValue(H)) /\
+     getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool /\
+     not TL contains T .
+ ceq developW(M, MQM, < H, N, P > LSN, TL) = developW(M, MQM, LSN, TL)
+  if T := unravel(H, getRootValue(H)) /\
+     TL contains T .
+ ceq developW(M, MQM, < H, s(N), P > LSN, TL) = developW(M, MQM, LSN putBoundPath(LH, N, P), (TL, unravel(H, getRootValue(H))))
+  if LH := natNext(M, H, MQM) [owise] .
+
+ *** For q-narrowing
+ ceq developW(M, MQM, < T, 0 > LSN, TL) = developW(M, MQM, LSN, TL)
+  if getTerm(metaReduce(M, 'cterm[T])) =/= 'true.Bool .
+ ceq developW(M, MQM, < T, N > LSN, TL) = < T, N > LSN
+  if getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool /\
+     not TL contains T .
+ ceq developW(M, MQM, < T, N > LSN, TL) = developW(M, MQM, LSN, TL)
+  if TL contains T .
+ ceq developW(M, MQM, < T, s(N) > LSN, TL) = developW(M, MQM, LSN putBoundPath(TL', N), TL)
+  if TL' := natNext(M, T, MQM) [owise] .
+
+ *** For q-narrowing with path
+ ceq developW(M, MQM, [ T, 0, P ] LSN, TL) = developW(M, MQM, LSN, TL)
+  if getTerm(metaReduce(M, 'cterm[T])) =/= 'true.Bool .
+ ceq developW(M, MQM, [ T, N, P ] LSN, TL) = [ T, N, P]  LSN
+  if getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool . *** /\ *** It does not make sense, since we may look for the same result with different paths
+     *** not TL contains T .
+ ***(
+ ceq developW(M, MQM, [ T, N, P ] LSN, TL) = developW(M, MQM, LSN, TL)
+  if TL contains T .
+ )
+ ceq developW(M, MQM, [ T, s(N), P ] LSN, TL) = developW(M, MQM, LSN putBoundPath2(TL', N, P), TL)
+  if TL' := natNext(M, T, MQM) [owise] .
+
+ op putBoundPath : TermList Nat -> List{SearchNode} .
+ eq putBoundPath(empty, N) = nil .
+ eq putBoundPath((T, TL), N) = < T, N > putBoundPath(TL, N) .
+
+ op putBoundPath2 : TermList Nat TermList -> List{SearchNode} .
+ eq putBoundPath2(empty, N, P) = nil .
+ eq putBoundPath2((T, TL), N, P) = [ T, N, (P, T) ] putBoundPath2(TL, N, P) .
+endfm
+
+***(%
+\end{verbatim}
+}
+%)

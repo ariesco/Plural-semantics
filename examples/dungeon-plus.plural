@@ -1,0 +1,171 @@
+(plural DUNGEON-PLUS is
+
+   cs(z) -> true .
+   cs(s(X)) -> true .
+   cs(ulises) -> true .
+
+   guardians -> circe ? calypso ? aeolus ? polyphemus .
+
+   ask is plural .
+   ask(circe, trojan-gold) -> item(treasure-map) ? sirens-secret .
+   ask(calypso, sirens-secret) -> item(chest-code) .
+   ask(aeolus, item(M)) -> combine(M,M) .
+   ask(polyphemus, combine(treasure-map, chest-code)) -> key .
+
+   askSome is plural .
+   askSome(Guardian, Messaje) -> askOne(Guardian, some(Messaje)) .
+   askOne is singular .
+   askOne(Guardian, Messajes) -> t(Guardian, Messajes, ask(Guardian,one(Messajes))) .
+
+   eq is singular .
+   eq(circe, circe) -> tt .
+   eq(calypso, calypso) -> tt .
+   eq(aeolus, aeolus) -> tt .
+   eq(polyphemus, polyphemus) -> tt .
+
+   ---- putStr (montaNeq ["trojan-gold", "treasure-map", "sirens-secret", "chest-code", "item(M)", "combine(X,Y)", "key"])
+   neq is singular .
+   neq(item(X), item(Y)) -> neq(X,Y) .
+   neq(combine(X1,Y1), combine(X2,Y2)) -> neq(X1, X2) .
+   neq(combine(X1,Y1), combine(X2,Y2)) -> neq(Y1, Y2) .
+    neq(trojan-gold, treasure-map) -> tt .
+    neq(trojan-gold, sirens-secret) -> tt .
+    neq(trojan-gold, chest-code) -> tt .
+    neq(trojan-gold, item(M)) -> tt .
+    neq(trojan-gold, combine(X,Y)) -> tt .
+    neq(trojan-gold, key) -> tt .
+    neq(treasure-map, trojan-gold) -> tt .
+    neq(treasure-map, sirens-secret) -> tt .
+    neq(treasure-map, chest-code) -> tt .
+    neq(treasure-map, item(M)) -> tt .
+    neq(treasure-map, combine(X,Y)) -> tt .
+    neq(treasure-map, key) -> tt .
+    neq(sirens-secret, trojan-gold) -> tt .
+    neq(sirens-secret, treasure-map) -> tt .
+    neq(sirens-secret, chest-code) -> tt .
+    neq(sirens-secret, item(M)) -> tt .
+    neq(sirens-secret, combine(X,Y)) -> tt .
+    neq(sirens-secret, key) -> tt .
+    neq(chest-code, trojan-gold) -> tt .
+    neq(chest-code, treasure-map) -> tt .
+    neq(chest-code, sirens-secret) -> tt .
+    neq(chest-code, item(M)) -> tt .
+    neq(chest-code, combine(X,Y)) -> tt .
+    neq(chest-code, key) -> tt .
+    neq(item(M), trojan-gold) -> tt .
+    neq(item(M), treasure-map) -> tt .
+    neq(item(M), sirens-secret) -> tt .
+    neq(item(M), chest-code) -> tt .
+    neq(item(M), combine(X,Y)) -> tt .
+    neq(item(M), key) -> tt .
+    neq(combine(X,Y), trojan-gold) -> tt .
+    neq(combine(X,Y), treasure-map) -> tt .
+    neq(combine(X,Y), sirens-secret) -> tt .
+    neq(combine(X,Y), chest-code) -> tt .
+    neq(combine(X,Y), item(M)) -> tt .
+    neq(combine(X,Y), key) -> tt .
+    neq(key, trojan-gold) -> tt .
+    neq(key, treasure-map) -> tt .
+    neq(key, sirens-secret) -> tt .
+    neq(key, chest-code) -> tt .
+    neq(key, item(M)) -> tt .
+    neq(key, combine(X,Y)) -> tt .
+
+   notIn is singular .
+   notIn(X, nil) -> tt .
+   notIn(X, cons(Y, Ys)) -> if neq(X,Y) then notIn(X, Ys) .
+   newIns is singular .
+   newIns(X, Xs) -> Xs ? newInsAux(X, Xs) .
+   newInsAux(X, Xs) -> if notIn(X,Xs) then cons(X, Xs) .
+   vals is plural .
+   vals(X) -> nil .
+   vals(X) -> newIns(X, vals(X)) .
+   askVals is plural .
+   askVals(Guardian, Messaje) -> askOne(Guardian, vals(Messaje)) .
+
+
+***(
+ (eval vals(item(treasure-map) ? item(chest-code)) .)
+(eval askOne(aeolus, cons(item(treasure-map),cons(item(chest-code),nil))) .)
+(eval askOne(aeolus, cons(item(chest-code),nil)) .)
+(eval askVals(aeolus, item(chest-code) ? item(treasure-map)) .)
+
+
+Ya se cuelga:
+(eval askOne(aeolus, vals(cons(item(chest-code),nil))) .) <-- pq hay q quitar el vals!
+(eval askVals(aeolus, item(chest-code)) .)
+    (eval askOne(aeolus, vals(item(chest-code))) .)
+)
+
+***(
+(eval ask(aeolus, item(treasure-map) ? item(chest-code)) . )
+(eval askWho(aeolus, item(treasure-map) ? item(chest-code)) . )
+(eval askWhoP(aeolus, item(treasure-map) ? item(chest-code)) . )
+(eval [depth= 100] askSome(aeolus, item(treasure-map) ? item(chest-code)) . )
+(eval [depth= 50] askVals(aeolus, item(treasure-map) ? item(chest-code)) . )
+
+
+Maude> (eval [depth= 500] one(cons(item(treasure-map),cons(item(chest-code),nil))) .)
+
+)
+
+  items(item(P)) -> item(P) .
+  repeat is plural .
+  repeat(X) -> cons(X, repeat(X)) .
+  some is plural .
+  some(X) -> nil .
+  some(X) -> cons(X, some(X)) .
+  one is plural .
+  one(cons(X, Xs)) -> X ? one(Xs) .
+
+  discoverHow is plural .
+  discoverHow(T) -> T ? discoverHow(disStepHow(T) ? T) .
+
+  disStepHow is plural .
+  disStepHow(X) -> X .
+  
+
+  discStepPath is plural .
+  discStepPath(cons(Last, Trace)) -> mix(Trace, askWho(guardians, Last)) .
+  discStepPath(cons(Last, Trace)) -> cons(combine(Last, Last), Trace) .
+
+  mix is plural .
+  mix(Trace, t(Guardian, Question, Answer)) -> cons(Answer, cons(Guardian, cons(Question, Trace))) .
+
+
+  escapePath -> open(discoverPath(cons(trojan-gold, nil))) .
+  open(key) -> true .
+endp)
+
+--- necesario para el truqui con some y tal
+--- (breadth-first .)
+*** (depth-first .)
+
+--- (eval discoverPath(cons(trojan-gold, nil)) .)
+
+--- (eval askWho(guardians, trojan-gold) .)
+
+***(
+Sorprendentemente termina, incluso con primero en profundidad
+
+Maude>  (eval one(repeat(guardians)) .)
+
+Result: circe
+
+Maude> (more .)
+
+Result: calypso
+
+Maude> (more .)
+
+Result: aeolus
+
+Maude> (more .)
+
+Result: polyphemus
+
+Maude> (more .)
+
+No more results.
+
+)

@@ -1,0 +1,200 @@
+*** (many-steps tree .)
+
+mod FIBO is
+  protecting EXT-BOOL .
+  protecting QID .
+  sorts Exp .
+  subsort Nat < Exp .
+  subsort Qid < Exp .
+  
+  vars E E' V X Y : Exp .
+  
+  op _?_ : Exp Exp -> Exp [assoc comm] .
+  op add : Exp Exp -> Exp .
+  op cterm : Exp -> Bool .
+  op ff : -> Exp .
+  op fibo : Exp -> Exp .
+  op if_then_ : Exp Exp -> Exp [frozen(2)] .
+  op match1 : Exp -> Exp .
+  op match4 : Exp -> Exp .
+  op project1-0-0 : Exp -> Exp .
+  op project4-0-0 : Exp -> Exp .
+  op succ : Exp -> Exp [iter] .
+  op tt : -> Exp .
+  op z : -> Exp .
+  
+  eq [ct1] : cterm(succ(E)) = cterm(E) .
+  eq [ct2] : cterm(z) = true .
+  eq [ct3] : cterm(E) = false [owise] .
+
+  eq [m1] : match1(succ(E)) = tt .
+  eq [m2] : match4(succ(succ(E))) = tt .
+  eq [p1] : project1-0-0(succ(E)) = E .
+  eq [p2] : project4-0-0(succ(succ(E))) = E .
+  rl [if] : if tt then E => E .
+  rl [q] : E ? E' => E .
+  rl [add1] : add(V, Y) => if match1(V) then succ(add(project1-0-0(V), Y))
+    .
+  crl [add2] : add(z, X) => X
+   if cterm(X) .
+  rl [f1] : fibo(V) => if match4(V) then add(fibo(project4-0-0(V)),fibo(succ(project4-0-0(V))))
+    .
+  rl [f2] : fibo(z) => z .
+  rl [f3] : fibo(succ(z)) => succ(z) .
+endm
+
+eof
+
+red in META-LEVEL :
+metaXapply(upModule('FIBO, true), 'fibo['succ['succ['succ['succ['succ['z.Exp]]]]]], 'f1, none, 0, unbounded, 0) .
+
+eof
+
+(debug fibo(succ^5(z)) =>* succ^5(z) .)
+
+(debug fibo(succ^6(z)) =>* succ^8(z) .)
+
+search fibo(succ^5(z)) =>* E:Exp s.t. cterm(E:Exp) .
+
+search [100, 5] fibo(succ^5(z)) =>* E:Exp .
+
+*** Nivel 0
+
+fibo(succ^5(z))
+
+*** Nivel 1
+
+add(fibo(succ^3(z)), fibo(succ^4(z)))
+
+*** Nivel 2
+
+add(add(fibo(succ(z)), fibo(succ^2(z))), fibo(succ^4(z)))
+
+add(fibo(succ^3(z)), add(fibo(succ^2(z)), fibo(succ^3(z))))
+
+*** Nivel 3
+
+add(add(fibo(succ(z)), fibo(succ^2(z))), add(fibo(succ^2(z)), fibo(succ^3(z))))
+
+add(add(succ(z), fibo(succ^2(z))), fibo(succ^4(z)))
+
+add(add(fibo(succ(z)), add(fibo(z), fibo(succ(z)))), fibo(succ^4(z)))
+
+add(fibo(succ^3(z)), add(add(fibo(z), fibo(succ(z))), fibo(succ^3(z))))
+
+add(fibo(succ^3(z)), add(fibo(succ^2(z)), add(fibo(succ(z)), fibo(succ^2(z)))))
+
+*** Nivel 4
+
+add(add(succ(z), fibo(succ^2(z))), add(fibo(succ^2(z)), fibo(succ^3(z))))
+
+add(add(fibo(succ(z)), add(fibo(z), fibo(succ(z)))), add(fibo(succ^2(z)), fibo(succ^3(z))))
+
+add(add(fibo(succ(z)), fibo(succ^2(z))), add(add(fibo(z), fibo(succ(z))), fibo(succ^3(z))))
+
+add(add(fibo(succ(z)), fibo(succ^2(z))), add(fibo(succ^2(z)), add(fibo(succ(z)), fibo(succ^2(z)))))
+
+add(succ(add(z, fibo(succ^2(z)))), fibo(succ^4(z)))
+
+add(add(succ(z), add(fibo(z), fibo(succ(z)))), fibo(succ^4(z)))
+
+add(add(fibo(succ(z)), add(z, fibo(succ(z)))), fibo(succ^4(z)))
+
+add(add(fibo(succ(z)), add(fibo(z), succ(z))), fibo(succ^4(z)))
+
+add(fibo(succ^3(z)), add(add(fibo(z), fibo(succ(z))), add(fibo(succ(z)), fibo(succ^2(z)))))
+
+add(fibo(succ^3(z)), add(add(z, fibo(succ(z))), fibo(succ^3(z))))
+
+add(fibo(succ^3(z)), add(add(fibo(z), succ(z)), fibo(succ^3(z))))
+
+add(fibo(succ^3(z)), add(fibo(succ^2(z)), add(succ(z), fibo(succ^2(z)))))
+
+add(fibo(succ^3(z)), add(fibo(succ^2(z)), add(fibo(succ(z)), add(fibo(z), fibo(succ(z))))))
+
+*** Nivel 5 (solucion 23 incluida pa alante)
+
+add(succ(add(z, fibo(succ^2(z)))), add(fibo(succ^2(z)), fibo(succ^3(z))))
+
+add(add(succ(z), add(fibo(z), fibo(succ(z)))), add(fibo(succ^2(z)), fibo(succ^3(z))))
+
+add(add(succ(z), fibo(succ^2(z))), add(add(fibo(z), fibo(succ(z))), fibo(succ^3(z))))
+
+add(add(succ(z), fibo(succ^2(z))), add(fibo(succ^2(z)), add(fibo(succ(z)), fibo(succ^2(z)))))
+
+add(add(fibo(succ(z)), add(fibo(z), fibo(succ(z)))), add(add(fibo(z), fibo(succ(z))), fibo(succ^3(z))))
+
+add(add(fibo(succ(z)), add(fibo(z), fibo(succ(z)))), add(fibo(succ^2(z)), add(fibo(succ(z)), fibo(succ^2(z)))))
+
+add(add(fibo(succ(z)), add(z, fibo(succ(z)))), add(fibo(succ^2(z)), fibo(succ^3(z))))
+
+add(add(fibo(succ(z)), add(fibo(z), succ(z))), add(fibo(succ^2(z)), fibo(succ^3(z))))
+
+add(add(fibo(succ(z)), fibo(succ^2(z))), add(add(fibo(z), fibo(succ(z))), add(fibo(succ(z)), fibo(succ^2(z)))))
+
+add(add(fibo(succ(z)), fibo(succ^2(z))), add(add(z, fibo(succ(z))), fibo(succ^3(z))))
+
+add(add(fibo(succ(z)), fibo(succ^2(z))), add(add(fibo(z), succ(z)), fibo(succ^3(z))))
+
+add(add(fibo(succ(z)), fibo(succ^2(z))), add(fibo(succ^2(z)), add(succ(z), fibo(succ^2(z)))))
+
+add(add(fibo(succ(z)), fibo(succ^2(z))), add(fibo(succ^2(z)), add(fibo(succ(z)), add(fibo(z), fibo(succ(z))))))
+
+succ(add(add(z, fibo(succ^2(z))), fibo(succ^4(z))))
+
+add(succ(add(z, add(fibo(z), fibo(succ(z))))), fibo(succ^4(z)))
+
+add(add(succ(z), add(z, fibo(succ(z)))), fibo(succ^4(z)))
+
+add(add(succ(z), add(fibo(z), succ(z))), fibo(succ^4(z)))
+
+add(add(fibo(succ(z)), add(z, succ(z))), fibo(succ^4(z)))
+
+add(fibo(succ^3(z)), add(add(z, fibo(succ(z))), add(fibo(succ(z)), fibo(succ^2(z)))))
+
+add(fibo(succ^3(z)), add(add(fibo(z), succ(z)), add(fibo(succ(z)), fibo(succ^2(z)))))
+
+add(fibo(succ^3(z)), add(add(fibo(z), fibo(succ(z))), add(succ(z), fibo(succ^2(z)))))
+
+add(fibo(succ^3(z)), add(add(fibo(z), fibo(succ(z))), add(fibo(succ(z)), add(fibo(z), fibo(succ(z))))))
+
+add(fibo(succ^3(z)), add(add(z, succ(z)), fibo(succ^3(z))))
+
+add(fibo(succ^3(z)), add(fibo(succ^2(z)), succ(add(z, fibo(succ^2(z))))))
+
+add(fibo(succ^3(z)), add(fibo(succ^2(z)), add(succ(z), add(fibo(z), fibo(succ(z))))))
+
+add(fibo(succ^3(z)), add(fibo(succ^2(z)), add(fibo(succ(z)), add(z, fibo(succ(z))))))
+
+add(fibo(succ^3(z)), add(fibo(succ^2(z)), add(fibo(succ(z)), add(fibo(z), succ(z)))))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,47 @@
+(plural EQS-P is
+
+ fS is singular .
+ fS(X) -> g(X) .
+
+ fP is plural .
+ fP(X) -> g(X) .
+
+ g is plural .
+ g(X) -> p(X,X) .
+
+endp)
+
+eof
+
+Maude> (eval fS(tt ? ff) .)
+
+Result: p(tt,tt)
+
+Maude> (more .)
+
+Result: p(ff,ff)
+
+Maude> (more .)
+
+No more results.
+
+Maude> (eval fP(tt ? ff) .)
+
+Result: p(tt,tt)
+
+Maude> (more .)
+
+Result: p(tt,ff)
+
+Maude> (more .)
+
+Result: p(ff,tt)
+
+Maude> (more .)
+
+Result: p(ff,ff)
+
+Maude> (more .)
+
+No more results.
+

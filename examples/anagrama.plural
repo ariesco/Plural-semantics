@@ -1,0 +1,14 @@
+(plural anagrama is
+
+  constant(z) -> tt .
+  constant(s(X)) -> tt .
+
+  permut(nil) -> nil .
+  permut(cons(X,Xs)) -> cons(X,Xs) .
+  permut(cons(X,cons(Y,Xs))) -> cons(Y,permut(cons(X,Xs))) .
+endp)
+
+***(
+(eval permut(cons(z, cons(s(z),nil))) .)
+
+)

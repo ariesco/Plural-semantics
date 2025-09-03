@@ -1,0 +1,1199 @@
+
+***(%
+
+\subsection{I/O handling}\label{subsec:io}
+
+
+
+{\codesize
+\begin{comment}
+%)
+
+fmod AUXILIARY-OPS is
+ pr META-LEVEL .
+ pr CONVERSION .
+ pr MAP{Qid, Mdt} .
+
+ var  SS : SortSet .
+ var  SSDS : SubsortDeclSet .
+ var  ODS : OpDeclSet .
+ var  MAS : MembAxSet .
+ var  EqS : EquationSet .
+ var  IL : ImportList .
+ vars T T' T1 T2 : Term .
+ var  N : Nat .
+ var  Q : Qid .
+ vars RS RS' : RuleSet .
+ var  B : Branch .
+ var  A : MDT .
+ var  AtS : AttrSet .
+ var  M : Module .
+ var  NL : NatList .
+ var  F : Forest .
+ var  MQM : Map{Qid, Mdt} .
+ var  R : Rule .
+
+ op label : RuleSet Nat -> RuleSet .
+
+ eq label(none, N) = none .
+ eq label(rl T => T' [label(Q) AtS] . RS, N) =
+                rl T => T' [label(Q) AtS] . label(RS, N) .
+ eq label(rl T => T' [AtS] . RS, N) =
+                rl T => T' [createLabel(N) AtS] . label(RS, s(N)) [owise] .
+
+ op createLabel : Nat -> Attr .
+ eq createLabel(N) = label(qid("L@#$" + string(N, 10))) .
+
+ op setRls : Module RuleSet -> Module .
+ eq setRls(mod Q is IL sorts SS . SSDS ODS MAS EqS RS endm, RS') =
+        mod Q is IL sorts SS . SSDS ODS MAS EqS RS' endm .
+
+ op getRules : Map{Qid, Mdt} -> RuleSet .
+ op getRules : MDT -> RuleSet .
+ op getRules* : Forest -> RuleSet .
+ op getRulesBranch : Branch -> RuleSet .
+
+ eq getRules((Q |-> A, MQM)) = getRules(A) getRules(MQM) .
+ eq getRules((empty).Map{Qid, Mdt}) = none .
+
+ eq getRules(leaf(T, R)) = R .
+ eq getRules(or(F)) = getRules*(F) .
+ eq getRules(branch(T, B)) = getRulesBranch(B) .
+
+ eq getRules*(A F) = getRules(A) getRules*(F) .
+ eq getRules*(empty) = none .
+
+ eq getRulesBranch(empty) = none .
+ eq getRulesBranch(< NL, F > B) = getRules*(F) getRulesBranch(B) .
+
+ op extend : Module Map{Qid, Mdt} -> Module .
+ eq extend(M, MQM) = setRls(M, label(getRls(M) getRules(MQM), 0)) .
+
+ op label : RuleSet Map{Qid, Mdt} -> Map{Qid, Mdt} .
+ eq label(RS, (Q |-> A, MQM)) = Q |-> label(RS, A), label(RS, MQM) .
+ eq label(RS, (empty).Map{Qid, Mdt}) = (empty).Map{Qid, Mdt} .
+
+ op label : RuleSet MDT -> MDT .
+ eq label(RS, leaf(T, R)) = leaf(T, label(RS, R)) .
+ eq label(RS, or(F)) = or(label*(RS, F)) .
+ eq label(RS, branch(T, B)) = branch(T, label(RS, B)) .
+
+ op label : RuleSet Branch -> Branch .
+ eq label(RS, < NL, F > B) = < NL, label*(RS, F) > label(RS, B) .
+ eq label(RS, (empty).Branch) = (empty).Branch .
+
+ op label : RuleSet Rule -> Rule .
+ eq label(rl T => T' [label(Q) AtS] . RS, rl T => T' [AtS] .) = rl T => T' [label(Q) AtS] . .
+ eq label(RS, R) = R [owise] .
+
+ op label* : RuleSet Forest -> Forest .
+ eq label*(RS, empty) = empty .
+ eq label*(RS, A F) = label(RS, A) label*(RS, F) .
+endfm
+
+***(%
+\end{comment}
+}
+
+The module \texttt{PLURAL-HANDLING} is in charge of dealing with
+the commands introduced by the user.
+
+{\codesize
+\begin{verbatim}
+%)
+
+mod PLURAL-HANDLING is
+  pr MODULE-CONSTRAINTS .
+  pr NATURAL-REWRITING .
+  pr PLURAL-PARSING .
+  pr MAYBE{TermList} .
+  pr MAYBE{Module} .
+  pr AUXILIARY-OPS .
+  pr Q-NARROWING .
+
+  vars T T' T1 T2 TG : Term .
+  var  T? : [Term] .
+  vars TL P P' IP : TermList .
+  var  MT : Maybe{TermList} .
+  var  Ty : Type .
+  var  Sb : Substitution .
+  vars MM MM' : Maybe{Module} .
+  vars MQM MQM' : Map{Qid, Mdt} .
+  vars M M' M'' : Module .
+  vars N N' B B' NB : Nat .
+  var  Q : Qid .
+  vars QIL QIL' : QidList .
+  var  AtS : AttributeSet .
+  var  S : Strategy .
+  var  LSN LSN' : List{SearchNode} .
+  var  PA : Bool .
+  var  H : Heap .
+  var  TUPL : TUPairList .
+  vars QU QU' : Queue .
+  var  SPS : StackPreviousStates .
+
+***(%
+\end{verbatim}
+}
+
+The state of the input/output loop is defined by a set of attributes
+that keeps information about the state of the tool.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  sorts Attribute AttributeSet PluralState .
+  subsort Attribute < AttributeSet .
+
+  op emptyAS : -> AttributeSet .
+  op _,_ : AttributeSet AttributeSet -> AttributeSet [assoc comm id: emptyAS] .
+  op <_> : AttributeSet -> PluralState .
+
+***(%
+\end{verbatim}
+}
+
+The constant \texttt{maxRewrites} indicates the maximum number of rewrites that
+will be tried (if the user does not introduce a bound) until the tool decides that
+there is a infinite computation.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op maxRewrites : -> Nat .
+  eq maxRewrites = 500 .
+
+***(%
+\end{verbatim}
+}
+
+We define the following attributes:
+
+\begin{itemize}
+
+\item \texttt{input} keeps the data (the command) introduced by the user.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op input :_ : TermList -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{output} receives the list of quoted identifiers that will be
+prompted to the user.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op output :_ : QidList -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{module} stores the current module, where the rewritings take
+place. It has sort \verb"Maybe{Module}", so its value is initially \verb"maybe".
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op module :_ : Maybe{Module} -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{extendedModule} stores the transformed module plus the rules
+instantiated in the matching definitional trees.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op extendedModule :_ : Maybe{Module} -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{treeMap} stores a mapping from any function symbol in the current module to a
+safe matching definitional tree for it, that is used to implement the natural rewriting strategy.
+Its value is initially \texttt{empty}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op treeMap :_ : Map{Qid, Mdt} -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{searchTree} stores the search tree computed so far, in order to compute
+the next solutions. This list represents a stack if depth-first strategy is selected,
+and a queue if width-first is selected.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op searchTree :_ : List{SearchNode} -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{strategy} indicates the strategy selected to compute the search tree.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op strategy :_ : Strategy -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{results} keeps the results already obtained to avoid repetitions.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op results :_ : TermList -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{bound} saves the upper bound used in the search.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op bound :_ : Nat -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{path} stores the path to the last result shown by the tool.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op path :_ : TermList -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item
+The attribute \texttt{pathActive} controls if the current path is kept.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op pathActive :_ : Bool -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item
+The attribute \texttt{queue} keeps the current queue in the narrowing process:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op queue :_ : Queue -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item
+\texttt{fresh} indicates the next index to be used to generate fresh variables in the narrowing
+process:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op fresh :_ : Nat -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item
+\texttt{init-term} indicates the initial term used in the narrowing process:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op init-term :_ : Maybe{TermList} -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item
+\texttt{narr-bound} keeps the bound in the number of steps for the narrowing
+process:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op narr-bound :_ : Nat -> Attribute [gather(&)] .
+  op stack :_ : StackPreviousStates -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+
+The constant \texttt{helpMsg} contains the help message, that
+will be shown when the \texttt{help} command is used.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op helpMsg : -> QidList .
+
+***(%
+\end{verbatim}
+}
+
+{\codesize
+\begin{comment}
+%)
+
+  eq helpMsg = 'Available 'commands: '\n
+   '\t 'load '<filename> ': 'loads 'a 'program 'from 'the 'file 'specified. '\n
+   '\t '`( 'eval '<expression> '. '`) ' ': 'evaluates 'an 'expression 'to 'a
+       'constructor 'normal 'form. '\n
+   '\t '`( 'eval ' '`[ 'depth= '<nat> '`] ' '<expression> '. '`) ' ': 'evaluates 'an
+       'expression 'to 'a 'constructor 'normal 'form 'with 'the 'given 'bound
+       'in 'the 'number 'of 'rewrites. '\n
+   '\t '`( 'more '. '`) ' ': 'prints 'the 'next 'value 'for 'the 'current
+       'evaluated 'expression 'if 'any. '\n
+   '\t '`( 'depth-first '. '`) ' ': 'selects 'the 'depth-first 'strategy. '\n
+   '\t '`( 'breadth-first '. '`) ' ': 'selects 'the 'breadth-first 'strategy. '\n
+   '\t '`( 'reboot '. '`) ' ': 'reboots 'the 'system. '\n
+   '\t ' 'quit ': 'exits 'the 'interpreter. '\n
+   '\t '`( 'showTr '. '`) ' ': 'prints 'the 'program 'result 'of 'the
+       'transformation 'that 'will 'be 'used 'for 'evaluation. '\n
+   '\t '`( 'show 'path '. '`) ' ': 'prints 'the 'path 'to 'the 'last 'solution. '\n
+   '\t '`( 'help '. '`) ' ': 'shows 'this 'help 'message. '\n .
+
+***(%
+\end{comment}
+}
+
+The rule \texttt{module-in} processes a module and puts it in the corresponding
+attribute if it fulfills the conditions shown in Section \ref{subsec:aux} and computes
+the forest of matching definitional trees with the function \texttt{MDTMap} shown
+in Section \ref{subsec:mdt}. The function \texttt{extend} adds to the module the
+instantiated rules from the trees.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [module-in] :
+      < input : 'plural_is_endp[T, T'], module : MM, output : nil, treeMap : MQM,
+        extendedModule : MM', path : P, AtS >
+   => < input : empty, module : M, output : ('\n 'Module 'introduced. '\n QIL),
+        treeMap : label(getRls(M'), MQM'), extendedModule : M', path : empty, AtS >
+   if < M, nil > := processModule(T, T') /\
+      MQM' := MDTMap(M) /\
+      M' := extend(M, MQM') /\
+      QIL := if equivalent?(M)
+             then equivalent
+             else no-equivalent
+             fi .
+
+***(%
+\end{comment}
+}
+
+\begin{comment}
+
+The rule \texttt{q-module-in} processes a module for q-narrowing and puts it in the
+corresponding attribute:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [q-module-in] :
+      < input : 'smod_is_ends[T, T'], module : MM, output : nil, treeMap : MQM,
+        extendedModule : MM', AtS >
+   => < input : empty, module : M, output : ('\n 'Module 'introduced. '\n),
+        treeMap : label(getRls(M''), MQM'), extendedModule : M'', AtS >
+   if < M, nil > := processQModule(T, T') /\
+      M' := addGen(M) /\
+      MQM' := MDTMap(M') /\
+      M'' := extend(M', MQM') .
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+The rule \texttt{wrong-module-in} prompts an error message if the module
+does not fulfill the appropriate constraints.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [wrong-module-in] :
+      < input : 'plural_is_endp[T, T'], module : MM, output : nil, AtS >
+   => < input : empty, module : maybe, output : QIL, AtS >
+   if < M, QIL > := processModule(T, T') /\
+      QIL =/= nil .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{module-error} returns an error if the module has not been given
+and the user tries to use a command different of module introduction.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [module-error] :
+      < input : Q[TL], module : maybe, output : nil, AtS >
+   => < input : empty, module : maybe, output : ('\n 'The 'module 'has
+                                                 'not 'been 'introduced 'yet. '\n), AtS >
+   if Q =/= 'plural_is_endp .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{eval} evaluates the expression given by the user with
+\texttt{maxRewrites} as upper bound in the number of rewrites.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [eval] :
+      < input : 'eval_.[T], extendedModule : M, results : TL, bound : B,
+        treeMap : MQM, searchTree : LSN, strategy : S, path : P, pathActive : PA,
+        output : nil, AtS >
+   => < input : empty, extendedModule : M, results : T2, bound : maxRewrites,
+        treeMap : MQM, searchTree : LSN', path : P', strategy : S, pathActive : PA,
+        output : ('\n 'Result: metaPrettyPrint(M, T2) '\n), AtS >
+   if T1 := first(processExp(T)) /\
+      valid(M, T1) /\
+      IP := if PA then T1 else empty fi /\
+      < H, N, P' > LSN' := evaluate(M, MQM, < ['$@%&H0:Exp <- T1, '$@%&H0:Exp, fs(getRls(M)),
+                                                1], maxRewrites, IP >, empty, S) /\
+      T2 := getRootValue(H) .
+
+***(%
+\end{verbatim}
+}
+
+If the expression to be evaluated has no meaning in the module, a error
+message is prompt.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [eval-wrong-exp] :
+      < input : 'eval_.[T], module : M, results : TL, searchTree : LSN,
+        bound : B, output : nil, AtS >
+   => < input : empty, module : M, results : empty, searchTree : nil,
+        bound : maxRewrites, output : ('\n 'Wrong 'expression. '\n), AtS >
+   if T1 := first(processExp(T)) /\
+      not valid(M, T1) .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{eval-failure} is applied when a correct expression introduced by the user
+cannot be reduced to a cterm.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [eval-failure] :
+      < input : 'eval_.[T], extendedModule : M, treeMap : MQM, results : TL,
+        searchTree : LSN, strategy : S, bound : B, output : nil,
+        pathActive : PA, AtS >
+   => < input : empty, extendedModule : M, treeMap : MQM, results : empty,
+        searchTree : nil, strategy : S, bound : maxRewrites, pathActive : PA,
+        output : ('\n 'The 'term 'cannot 'be 'reduced 'to 'a 'cterm. '\n), AtS >
+   if T1 := first(processExp(T)) /\
+      IP := if PA then T1 else empty fi /\
+      nil == evaluate(M, MQM, < ['$@%&H0:Exp <- T1, '$@%&H0:Exp,
+                                                fs(getRls(M)), 1], B, IP >, empty, S) .
+
+***(%
+\end{verbatim}
+}
+
+Similarly, the \verb"eval-gen" rule is in charge of dealing with the search using the
+\verb"gen" rules:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [eval-gen] :
+      < input : 'eval-gen_.[T], extendedModule : M, results : TL, bound : B,
+        treeMap : MQM, searchTree : LSN, strategy : S, pathActive : false,
+        output : nil, AtS >
+   => < input : empty, extendedModule : M, results : T2, bound : B,
+        treeMap : MQM, searchTree : LSN', strategy : S, pathActive : false,
+        output : ('\n 'Result: metaPrettyPrint(M, T2) '\n), AtS >
+   if T1 := termWithVariables2Gen(first(processExp(T))) /\
+      valid(M, T1) /\
+      < T2, N > LSN' := evaluate(M, MQM, < T1, B >, empty, S) .
+
+  crl [eval-gen-path] :
+      < input : 'eval-gen_.[T], extendedModule : M, results : TL, bound : B,
+        treeMap : MQM, searchTree : LSN, strategy : S, pathActive : true,
+        path : P, output : nil, AtS >
+   => < input : empty, extendedModule : M, results : T2, bound : B,
+        treeMap : MQM, searchTree : LSN', strategy : S, path : P',
+        pathActive : true,
+        output : ('\n 'Result: metaPrettyPrint(M, T2) '\n), AtS >
+   if T1 := termWithVariables2Gen(first(processExp(T))) /\
+      valid(M, T1) /\
+      [ T2, N, P' ] LSN' := evaluate(M, MQM, [ T1, B, empty ], empty, S) .
+
+  crl [eval-gen-wrong-exp] :
+      < input : 'eval-gen_.[T], extendedModule : M, results : TL, searchTree : LSN,
+        bound : B, output : nil, AtS >
+   => < input : empty, extendedModule : M, results : empty, searchTree : nil,
+        bound : maxRewrites, output : ('\n 'Wrong 'expression. '\n), AtS >
+   if T1 := termWithVariables2Gen(first(processExp(T))) /\
+      not valid(M, T1) .
+
+  crl [eval-gen-failure] :
+      < input : 'eval-gen_.[T], extendedModule : M, treeMap : MQM, results : TL,
+        searchTree : LSN, strategy : S, bound : B, output : nil, AtS >
+   => < input : empty, extendedModule : M, treeMap : MQM, results : empty,
+        searchTree : nil, strategy : S, bound : maxRewrites,
+        output : ('\n 'The 'term 'cannot 'be
+                  'reduced 'to 'a 'cterm. '\n), AtS >
+   if T1 := termWithVariables2Gen(first(processExp(T))) /\
+      nil == evaluate(M, MQM, < T1, B >, empty, S) .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{next} continues the evaluation of a expression using generators:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [next] :
+      < input : ('next`..@Command@), extendedModule : M, results : TL,
+        treeMap : MQM, searchTree : LSN, strategy : S,
+        output : nil, AtS >
+   => < input : empty, extendedModule : M, results : (TL, T1), treeMap : MQM,
+        searchTree : LSN', strategy : S,
+        output : ('\n 'Result: metaPrettyPrint(M, T1) '\n), AtS >
+   if < T1, N > LSN' := evaluate(M, MQM, LSN, TL, S) .
+
+  crl [next] :
+      < input : ('next`..@Command@), extendedModule : M, results : TL,
+        treeMap : MQM, searchTree : LSN, strategy : S,
+        output : nil, path : P, AtS >
+   => < input : empty, extendedModule : M, results : (TL, T1), treeMap : MQM,
+        searchTree : LSN', strategy : S,
+        output : ('\n 'Result: metaPrettyPrint(M, T1) '\n), path : P', AtS >
+   if [ T1, N, P' ] LSN' := evaluate(M, MQM, LSN, TL, S) .
+
+  crl [next-end] :
+      < input : ('next`..@Command@), extendedModule : M, results : TL,
+        treeMap : MQM, searchTree : LSN, strategy : S,
+        output : nil, AtS >
+   => < input : empty, extendedModule : M, results : TL, treeMap : MQM,
+        searchTree : LSN, strategy : S,
+        output : ('\n 'No 'more 'solutions. '\n), AtS >
+   if nil := evaluate(M, MQM, LSN, TL, S) .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{bound-eval} evaluates the given expression with the selected bound.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [bound-eval] :
+      < input : ('eval`[depth=_`]_.['token[T], T']), extendedModule : M,
+        treeMap : MQM, results : TL, searchTree : LSN, strategy : S,
+        bound : B, path : P, output : nil, pathActive : PA, AtS >
+   => < input : empty, extendedModule : M, treeMap : MQM, results : T2,
+        searchTree : LSN', strategy : S, bound : B', path : P', pathActive : PA,
+        output : ('\n 'Result: metaPrettyPrint(M, T2) '\n), AtS >
+   if B' := downNat(downQid(T)) /\
+      T1 := first(processExp(T')) /\
+      IP := if PA then T1 else empty fi /\
+      < H, N, P' > LSN' := evaluate(M, MQM, < ['$@%&H0:Exp <- T1, '$@%&H0:Exp,
+                                                fs(getRls(M)), 1], B', IP >, empty, S) /\
+      T2 := getRootValue(H) .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{bound-eval-failure} prompts an error message when no more solutions are
+available.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [bound-eval-failure] :
+      < input : ('eval`[depth=_`]_.['token[T], T']), extendedModule : M,
+        bound : B, treeMap : MQM, results : TL, searchTree : LSN, strategy : S,
+        pathActive : PA, output : nil, AtS >
+   => < input : empty, extendedModule : M, bound : maxRewrites,
+        treeMap : MQM, results : empty, searchTree : nil, strategy : S,
+        pathActive : PA, output : ('\n 'The 'term 'cannot 'be 'reduced 'to 'a 'cterm
+                                   'with 'the 'given 'bound. '\n), AtS >
+   if B' := downNat(downQid(T)) /\
+      T1 := first(processExp(T')) /\
+      IP := if PA then T1 else empty fi /\
+      nil == evaluate(M, MQM, < ['$@%&H0:Exp <- T1, '$@%&H0:Exp,
+                                 fs(getRls(M)), 1], B', IP >, empty, S)  .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{bound-eval-wrong-bound} shows an error when the bound is not a natural
+number.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [bound-eval-wrong-bound] :
+      < input : ('eval`[depth=_`]_.['token[T], T']), output : nil, AtS >
+   => < input : empty, output : ('\n 'Wrong 'bound. '\n), AtS >
+   if not downNat(downQid(T)) :: Nat .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{more} evaluates the last expression introduced by the user, looking for
+the next solution.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [more] :
+      < input : ('more`..@Command@), extendedModule : M, results : TL,
+        treeMap : MQM, searchTree : LSN, strategy : S, bound : B,
+        path : P, output : nil, AtS >
+   => < input : empty, extendedModule : M, results : (TL, T1), treeMap : MQM,
+        searchTree : LSN', strategy : S, bound : B, path : P',
+        output : ('\n 'Result: metaPrettyPrint(M, T1) '\n), AtS >
+   if < H, N, P' > LSN' := evaluate(M, MQM, LSN, TL, S) /\
+      T1 := getRootValue(H) .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{more-failure} shows an error messages when no more solutions are available.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [more-failure] :
+      < input : ('more`..@Command@), extendedModule : M, bound : B,
+        results : TL, treeMap : MQM, searchTree : LSN, strategy : S, output : nil, AtS >
+   => < input : empty, extendedModule : M, bound : B, results : TL,
+        treeMap : MQM, searchTree : nil, strategy : S,
+        output : ('\n 'No 'more 'results. '\n), AtS >
+   if nil == evaluate(M, MQM, LSN, TL, S) .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{more-no-exp} prints an error message if there is no expression
+to be evaluated.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  rl [more-no-exp] :
+     < input : ('more`..@Command@), module : M, searchTree : nil, output : nil, AtS >
+  => < input : empty, module : M, searchTree : nil,
+       output : ('\n 'There 'is 'no 'expression 'to 'be 'evaluated. '\n), AtS > .
+
+***(%
+\end{verbatim}
+}
+
+If the module has not been introduced yet, the tool also shows the corresponding
+error message.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  rl [more-no-module] :
+     < input : ('more`..@Command@), module : maybe, output : nil, AtS >
+  => < input : empty, module : maybe,
+       output : ('\n 'No 'module 'introduced. '\n), AtS > .
+
+***(%
+\end{verbatim}
+}
+
+The rules \texttt{depth-first} and \texttt{breadth-first} change the current strategy.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  rl [depth-first] :
+     < input : ('depth-first`..@Command@), strategy : S, searchTree : LSN,
+       output : nil, AtS >
+  => < input : empty, strategy : depth, searchTree : nil,
+       output : ('\n 'Depth-first 'strategy 'selected. '\n), AtS > .
+
+  rl [breadth-first] :
+     < input : ('width-first`..@Command@), strategy : S, searchTree : LSN,
+       output : nil, AtS >
+  => < input : empty, strategy : breadth, searchTree : nil,
+       output : ('\n 'Width-first 'strategy 'selected. '\n), AtS > .
+
+  rl [breadth-first] :
+     < input : ('breadth-first`..@Command@), strategy : S, searchTree : LSN,
+       output : nil, AtS >
+  => < input : empty, strategy : breadth, searchTree : nil,
+       output : ('\n 'Breadth-first 'strategy 'selected. '\n), AtS > .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{show-path} prints the trace to reach the last solution.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  rl [show-path] :
+     < input : ('show`path`..@Command@), extendedModule : M, path : P,
+       output : nil, AtS >
+  => < input : empty, extendedModule : M, path : P,
+       output : if P =/= empty
+                then printPath(M, P)
+                else ('\n 'No 'path 'available. '\n)
+                fi, AtS > .
+
+***(%
+\end{verbatim}
+}
+
+The rules \texttt{activate-path} and \texttt{deactivate-path} update the
+\texttt{pathActive} attribute.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  rl [activate-path] :
+     < input : ('path`on`..@Command@), pathActive : PA, output : nil, AtS >
+  => < input : empty, pathActive : true, output : ('\n 'Path 'activated. '\n), AtS > .
+
+  rl [deactivate-path] :
+     < input : ('path`off`..@Command@), pathActive : PA, output : nil, AtS >
+  => < input : empty, pathActive : false, output : ('\n 'Path 'deactivated. '\n), AtS > .
+
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{reboot} initializes all the attributes.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  rl [reboot] :
+     < input : ('reboot`..@Command@), output : nil, AtS >
+  => < input : empty, module : maybe, treeMap : empty, searchTree : nil,
+       strategy : depth, extendedModule : maybe, results : empty, bound : maxRewrites,
+       path : empty, pathActive : false, output : ('\n 'Tool 'rebooted. '\n) > .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{showTr} prints the program resulting after the transformation.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  rl [show_transformed] :
+     < input : ('showTr`..@Command@), module : M, output : nil, AtS >
+  => < input : empty, module : M, output : ('\n 'Transformed 'source 'program:
+                 '\n metaPrettyPrintRuleSetPlural(M, getRls(M), mixfix) '\n), AtS > .
+
+  rl [show_transformed-fail] :
+     < input : ('showTr`..@Command@), module : maybe, output : nil, AtS >
+  => < input : empty, module : maybe, output : ('\n 'No 'module 'has 'been
+                                                'introduced 'yet. '\n), AtS > .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{unif} shows the result of unifying two terms:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [unif] :
+      < input : ('_=?_.[T, T']), module : M, output : nil, AtS >
+   => < input : empty, module : M, output : ('\n printUnifRes(M, q-unify(T1 ==? T2)) '\n), AtS >
+   if T1 := first(processExp(T)) /\
+      T2 := first(processExp(T')) .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{narr} applies narrowing to the given expression:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [narr] :
+      < input : ('narrowing_.[T]), module : M, output : nil, queue : QU,
+        fresh : N, init-term : MT, narr-bound : NB, treeMap : MQM,
+        strategy : S, stack : SPS, AtS >
+   => < input : empty, module : M, output : ('\n printTUPL(M, TUPL) '\n),
+        queue : QU', fresh : N', init-term : T1, narr-bound : NB,
+        treeMap : MQM, strategy : S, stack : push(TUPL, mtSPS), AtS >
+   if T1 := first(processExp(T)) /\
+      < TUPL, QU', N' > := q-narrowing(M, T1, MQM, NB, S) .
+
+  crl [narr-end] :
+      < input : ('narrowing_.[T]), module : M, output : nil, queue : QU,
+                treeMap : MQM, narr-bound : NB, strategy : S, AtS >
+   => < input : empty, module : M, treeMap : MQM,
+                output : ('\n 'The 'term 'cannot 'be 'reduced 'to 'a 'cterm. '\n),
+        queue : mtQueue, narr-bound : NB, strategy : S, AtS >
+   if T1 := first(processExp(T)) /\
+      noResult == q-narrowing(M, T1, MQM, NB, S) .
+
+  crl [cont] :
+      < input : ('cont`..@Command@), module : M, output : nil, queue : QU,
+        fresh : N, init-term : T, treeMap : MQM, strategy : S,
+        stack : SPS, AtS >
+   => < input : empty, module : M, output : ('\n printTUPL(M, TUPL) '\n),
+        queue : QU', fresh : N', init-term : T, treeMap : MQM,
+        strategy : S, stack : push(TUPL, SPS), AtS >
+   if QU =/= mtQueue /\
+      < TUPL, QU', N' > := q-narrowing(M, T, MQM, QU, N, S, SPS) .
+
+  rl [cont-empty-queue] :
+     < input : ('cont`..@Command@), output : nil, queue : mtQueue, AtS >
+  => < input : empty, output : ('\n 'No 'more 'solutions. '\n),
+       queue : mtQueue, AtS > .
+
+  crl [cont-end] :
+      < input : ('cont`..@Command@), module : M, output : nil, queue : QU,
+        fresh : N, init-term : T, treeMap : MQM, strategy : S, stack : SPS, AtS >
+   => < input : ('cont`..@Command@), module : M, output : nil, queue : mtQueue,
+        fresh : N, init-term : T, treeMap : MQM, strategy : S, stack : SPS, AtS >
+   if T1 := first(processExp(T)) /\
+      noResult == q-narrowing(M, T, MQM, QU, N, S, SPS) .
+
+  crl [narr-depth-error] :
+      < input : ('narrowing`depth_.['token[T]]), output : nil,
+        narr-bound : NB, AtS >
+   => < input : empty, output : ('\n 'Bound 'for 'narrowing 'fixed. '\n),
+        narr-bound : N, AtS >
+   if N := downNat(downQid(T)) .
+
+  crl [narr-depth-error] :
+      < input : ('narrowing`depth_.['token[T]]), output : nil, AtS >
+   => < input : empty, output : ('\n 'Wrong 'bound. '\n), AtS >
+   if not downNat(downQid(T)) :: Nat .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{help} prints a short ussage message.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  rl [help] :
+     < input : ('help`..@Command@), output : nil, AtS >
+  => < input : empty, output : ('\n helpMsg '\n), AtS > .
+endm
+
+***(%
+\end{verbatim}
+}
+
+The interaction between the user and the tool by defining
+can be done in Maude itself by using the
+predefined module \texttt{LOOP-MODE} \cite[Chapter 17]{maude-book}, that handles
+the input/output and maintains the persistent state of the tool.
+The \texttt{LOOP-MODE} module defines an operator \verb"[_,_,_]", of
+sort \texttt{System}, that
+receives an input stream (the first argument), an output stream (the third
+argument), and a state (given by its second argument) of sort \texttt{State}.
+Concrete applications must specify \texttt{State} to define
+the data that must be kept during the execution of the program.
+
+The module \texttt{PLURAL-LOOP} includes this module and defines the
+behaviour of the loop.
+
+{\codesize
+\begin{verbatim}
+%)
+
+mod PLURAL-LOOP is
+  inc LOOP-MODE .
+  pr PLURAL-HANDLING .
+  pr META-PLURAL-SIGN .
+
+  vars QIL QIL' QIL'' : QidList .
+  var  AtS : AttributeSet .
+  var  N : Nat .
+  var  RP? : [ResultPair] .
+  vars RP RP' : ResultPair .
+  var  Q : Qid .
+
+***(%
+\end{verbatim}
+}
+
+We make \texttt{PluralState} a subsort of \texttt{State}, thus the set of
+attributes defined above is the data that will be modified by the system.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  subsort PluralState < State .
+
+***(%
+\end{verbatim}
+}
+
+A constant \texttt{init-plural} is created in order to obtain the initial
+state.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op init-plural : -> System .
+  op init-s : -> System .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{init} rewrites this constant into the initial state.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op init-state : -> AttributeSet .
+  eq init-state = input : empty, output : nil, module : maybe, treeMap : empty,
+                  searchTree : nil, strategy : depth, extendedModule : maybe,
+                  results : empty, bound : maxRewrites, path : empty,
+                  pathActive : false, queue : mtQueue, fresh : 0,
+                  init-term : maybe, narr-bound : 8, stack : mtSPS .
+
+  rl [init-plural] :
+     init-plural
+  => [nil, < init-state >, ('\n '\t 'Executable 'Plural 'Semantics
+                            '\s '`( 'November '1st '`, '\s '2010 '`) '\n)] .
+
+  rl [init-q] :
+     init-s
+  => [nil, < init-state >, ('\n '\t 'Executable 'S-Narrowing
+                            '\s '`( 'January '9th '`, '\s '2012 '`) '\n)] .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{in} parses the input introduced by the user in the module
+\texttt{SGRAMMAR} shown in Section \ref{subsec:signature} and places the
+obtained term in the \texttt{input} attribute.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [in] :
+      [QIL, < input : empty, AtS >, QIL']
+   => [nil, < input : getTerm(metaParse(SGRAMMAR, QIL, '@Input@)), AtS >, QIL']
+   if QIL =/= nil /\ metaParse(SGRAMMAR, QIL, '@Input@) :: ResultPair .
+
+***(%
+\end{verbatim}
+}
+
+If there is no parse in \texttt{SGRAMMAR} for the input, a message indicating
+where is the error is prompted to the user.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [in-noParse] :
+      [QIL, < output : nil, AtS >, QIL']
+   => [nil,
+       < output : ('\r 'Warning:
+                 printSyntaxError(metaParse(SGRAMMAR, QIL, '@Input@), QIL)
+                 '\n
+                 '\r 'Error: '\o 'No 'parse 'for 'input. '\n), AtS >,
+       QIL']
+   if QIL =/= nil /\
+      noParse(N) := metaParse(SGRAMMAR, QIL, '@Input@) .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where \texttt{printSyntaxError} traverses the input given by
+the user in order to point out the source of the error.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op printSyntaxError : [ResultPair?] QidList -> QidList .
+  eq printSyntaxError(noParse(N), QIL)
+    = '\r 'Parse 'error 'in '\o '\s printN(N + 1, QIL) '\r '<---*HERE* '\o .
+  eq printSyntaxError(ambiguity(RP, RP'), QIL)
+    = '\r 'Ambiguous 'parsing 'for '\o '\s QIL '\o .
+  eq printSyntaxError(RP?, QIL) = QIL [owise] .
+
+  op printN : Nat QidList -> QidList .  *** first N qid's in a qidList
+  eq printN(N, nil) = nil .
+  eq printN(0, QIL) = nil .
+  eq printN(s(N), Q QIL) = Q printN(N, QIL) .
+
+***(%
+\end{verbatim}
+}
+
+The message error if the input is ambiguous is put by the rule
+\texttt{in-ambiguous}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [in-ambiguous] :
+      [QIL, < output : nil, AtS >, QIL']
+   => [nil,
+       < output :  ('\r 'Error: 'Ambiguous 'input. '\n), AtS >,
+       QIL']
+   if QIL =/= nil /\
+      ambiguity(RP, RP') := metaParse(SGRAMMAR, QIL, '@Input@) .
+
+***(%
+\end{verbatim}
+}
+
+Finally, the rule \texttt{out} is in charge of placing the output
+stream in the third component of the loop.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [out] :
+      [QIL, < output : QIL', AtS >, QIL'']
+   => [QIL, < output : nil, AtS >, (QIL'' QIL')]
+   if QIL' =/= nil .
+endm
+
+
+***(%
+\end{verbatim}
+}
+
+The command \texttt{init-plural} initiates the input/output loop.
+
+{\codesize
+\begin{verbatim}
+%)
+
+loop init-plural .
+
+set print conceal on .
+*** print conceal searchTree`:_ .
+print conceal path`:_ .
+print conceal treeMap`:_ .
+print conceal mod_is_sorts_._____endm .
+print conceal fmod_is_sorts_.____endfm .
+
+set show advisories off .
+
+***(%
+\end{verbatim}
+}
+%)
+
+
+
+

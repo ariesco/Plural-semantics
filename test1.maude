@@ -1,0 +1,81 @@
+
+(plural FIBO is
+  fibo(z) -> z .
+  fibo(s(z)) -> s(z) .
+  fibo(s(s(N))) -> add(fibo(N), fibo(s(N))) .
+
+  add(z,X) -> X .
+  add(s(X),Y) -> s(add(X,Y)) .
+
+endp)
+***(
+(plural Ok1 is
+  f(X) -> h(X) .
+  h(z) -> s(z) .
+  g(X, Y) -> g(h(X), g(f(Y), Y)) .
+  b(tt, ff, X) -> tt .
+  b(ff, X, tt) -> tt .
+  b(X, t, ff) -> tt .
+endp)
+)
+
+***(
+
+(plural Ok2 is
+  f(X) -> z .
+  f(X) -> s(z) .
+  coin -> 0 .
+  coin -> 1 .
+endp)
+)
+
+***(
+(plural OkParallel is
+  or(tt, X) -> tt .
+  or(X, tt) -> tt .
+  or(ff, X) -> X .
+endp)
+)
+
+***(
+fmod foo is
+
+ pr MATCHING-TREE .
+--- pr META-LEVEL .
+ pr MAP{Qid, Nat} .
+
+ op modOr : -> Module .
+ op arOr : -> Map{Qid, Nat} .
+
+ eq modOr = (mod 'OkParallel is
+  protecting 'EXT-BOOL .
+  protecting 'QID .
+  sorts 'Exp .
+  subsort 'Nat < 'Exp .
+  subsort 'Qid < 'Exp .
+  op '_?_ : 'Exp 'Exp -> 'Exp [assoc comm] .
+  op 'cterm : 'Exp -> 'Bool [none] .
+  op 'ff : nil -> 'Exp [none] .
+  op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+  op 'or : 'Exp 'Exp -> 'Exp [none] .
+  op 'tt : nil -> 'Exp [none] .
+  none
+  eq 'cterm['E:Exp] = 'true.Bool [owise] .
+  eq 'cterm['N:Nat] = 'true.Bool [none] .
+  eq 'cterm['ff.Exp] = 'true.Bool [none] .
+  eq 'cterm['tt.Exp] = 'true.Bool [none] .
+  eq 'cterm['if_then_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+  eq 'cterm['or['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+  rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+  rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+  rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .
+  rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .
+  rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] . endm ) .
+
+  eq arOr = ('_?_ |-> 2, 'ff.Exp |-> 0, 'if_then_ |-> 2, 'or |-> 2, 'tt.Exp |-> 0) .
+
+endfm
+)
+
+
+

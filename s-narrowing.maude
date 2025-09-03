@@ -1,0 +1,963 @@
+fmod Q-UNIFICATION is
+ pr META-LEVEL .
+ pr TERMSET .
+
+ sort UnifProb .
+ op mtUP : -> UnifProb [ctor] .
+ op _==?_ : Term Term -> UnifProb [ctor] .
+ op _U_ : UnifProb UnifProb -> UnifProb [ctor assoc comm id: mtUP] .
+
+ sort UnifRes UnifResList .
+ subsort UnifRes < UnifResList .
+
+ ops errorUR : -> UnifRes [ctor] .
+ op _->_ : Term TermSet -> UnifRes [ctor] .
+
+ ops mtUR : -> UnifResList [ctor] .
+ op _;_ : UnifResList UnifResList -> UnifResList [ctor assoc comm id: mtUR] .
+
+ var  M : Module .
+ vars T T' : Term .
+ vars TL TL' : TermList .
+ vars TS TS' : TermSet .
+ var  UP : UnifProb .
+ var  UR : UnifRes .
+ vars URL URL' : UnifResList .
+ vars Q Q' : Qid .
+ vars V V' : Variable .
+ vars C C' : Constant .
+
+ op q-unify : UnifProb -> UnifResList .
+ eq q-unify(UP) = q-unify(UP, mtUR) .
+
+ op q-unify : UnifProb UnifRes -> UnifResList .
+ eq [solved] : q-unify(mtUP, URL) = URL .
+ eq [vTriv] : q-unify((T ==? T) U UP, URL) = q-unify(UP, URL) .
+ eq [dec] : q-unify((Q[TL] ==? Q[TL']) U UP, URL) = q-unify(addUnifProbs(TL, TL') U UP, URL) .
+ ceq [clash1] : q-unify((Q[TL] ==? Q'[TL']) U UP, URL) = errorUR
+  if Q =/= Q' .
+ eq [clash2] : q-unify((C ==? Q[TL]) U UP, URL) = errorUR .
+ eq [clash2] : q-unify((Q[TL] ==? C) U UP, URL) = errorUR .
+ eq [clash3] : q-unify((C ==? C') U UP, URL) = if getName(C) == getName(C')
+                                               then q-unify(UP, URL)
+                                               else errorUR
+                                               fi .
+ ceq [turn] : q-unify((T ==? V) U UP, URL) = q-unify((V ==? T) U UP, URL)
+  if not T :: Variable .
+ ceq [ocheck] : q-unify((V ==? T) U UP, URL) = q-unify(UP, URL')
+  if varInTerm(V, T) /\
+     V =/= T /\
+     URL' := add2result(V -> V | T, URL) .
+ ceq [ubind] : q-unify((V ==? T) U UP, URL) = q-unify(UP, URL')
+  if not varInTerm(V, T) /\
+     URL' := add2result(V -> T, URL) .
+
+ op addUnifProbs : TermList TermList -> UnifProb .
+ eq addUnifProbs((T, TL), (T', TL')) = (T ==? T') U addUnifProbs(TL, TL') .
+ eq addUnifProbs(TL, TL') = mtUP .
+
+ op add2result : UnifRes UnifResList -> UnifResList .
+ eq add2result(T -> TS, ((T -> TS') ; URL)) = (T -> (TS | TS')) ; URL .
+ eq add2result(T -> TS, URL) = (T -> TS) ; URL [owise] .
+
+ op add2result* : UnifResList UnifResList -> UnifResList .
+ eq add2result*(mtUR, URL) = URL .
+ eq add2result*(((T -> TS) ; URL), URL') = add2result*(URL, add2result(T -> TS, URL')) .
+
+ op varInTerm : Variable Term -> Bool .
+ eq varInTerm(V, Q[TL]) = varInTerm*(V, TL) .
+ eq varInTerm(V, C) = false .
+ eq varInTerm(V, V') = V == V' .
+
+ op varInTerm* : Variable TermList -> Bool .
+ eq varInTerm*(V, empty) = false .
+ eq varInTerm*(V, (T, TL)) = varInTerm(V, T) or-else varInTerm*(V, TL) .
+
+ op po : -> PrintOptionSet .
+ eq po = mixfix number rat format .
+
+ op printUnifRes : Module UnifResList -> QidList .
+ eq printUnifRes(M, mtUR) = nil .
+ eq printUnifRes(M, (T -> TS) ; URL) = '\n metaPrettyPrint(M, T, po) '-> printTermSet(M, TS)
+                                        printUnifRes(M, URL) .
+ eq printUnifRes(M, errorUR) = '\n '\r 'Clash. '\o .
+
+ op printTermSet : Module TermSet -> QidList .
+ ceq printTermSet(M, TS) = printTermSet*(M, TS)
+  if TS' := quitWithVariables(TS) .
+
+ op quitWithVariables : TermSet -> TermSet .
+ eq quitWithVariables(emptyTermSet) = emptyTermSet .
+ eq quitWithVariables(T | TS) = if hasVars?(T)
+                                then emptyTermSet
+                                else T
+                                fi | quitWithVariables(TS) .
+
+ op hasVars? : Term -> Bool .
+ eq hasVars?(V) = true .
+ eq hasVars?(C) = false .
+ eq hasVars?(Q[TL]) = hasVars?*(TL) .
+
+ op hasVars?* : TermList -> Bool .
+ eq hasVars?*(empty) = false .
+ eq hasVars?*((T, TL)) = hasVars?(T) or-else hasVars?*(TL) .
+
+ op printTermSet* : Module TermSet -> QidList .
+ eq printTermSet*(M, emptyTermSet) = nil .
+ ceq printTermSet*(M, T | TS) = metaPrettyPrint(M, T, po) ' '? printTermSet*(M, TS)
+  if TS =/= emptyTermSet .
+ eq printTermSet*(M, T) = metaPrettyPrint(M, T, po) .
+
+ op plural? : UnifResList -> Bool .
+ eq plural?(mtUR) = false .
+ eq plural?((T -> TS) ; URL) = plural?(TS) or-else plural?(URL) .
+
+ op plural? : TermSet -> Bool .
+ eq plural?(T | T' | TS) = true .
+ eq plural?(TS) = false [owise] .
+endfm
+
+fmod FRESH is
+ pr CONVERSION .
+ pr META-LEVEL .
+ pr TERMSET .
+
+ vars T T' : Term .
+ vars TL TL' : TermList .
+ var  TS : TermSet .
+ var  C : Constant .
+ vars V V' : Variable .
+ var  N : Nat .
+ var  Q : Qid .
+ var  AtS : AttrSet .
+ var  R : Rule .
+ var  RS : RuleSet .
+
+ op fresh : Term Nat -> Term .
+ eq fresh(Q[TL], N) = fresh*(Q, empty, TL, N) .
+ eq fresh(C, N) = C .
+ ceq fresh(V, N) = V'
+  if V' := qid(string(getName(V)) + "#" + string(N, 10) + ":" + string(getType(V))) .
+
+ op fresh* : Qid TermList TermList Nat -> Term .
+ eq fresh*(Q, TL, empty, N) = Q[TL] .
+ ceq fresh*(Q, TL, (T, TL'), N) = fresh*(Q, (TL, T'), TL', N)
+  if T' := fresh(T, N) .
+
+ op fresh : Rule Nat ~> Rule .
+ eq fresh(rl T => T' [AtS] ., N) = rl fresh(T, N) => fresh(T', N) [AtS] . .
+
+ op fresh* : RuleSet Nat ~> RuleSet .
+ eq fresh*(none, N) = none .
+ eq fresh*(R RS, N) = fresh(R, N) fresh*(RS, N) .
+
+ op getFreshSub : Term Nat -> Substitution .
+ ceq getFreshSub(T, N) = subsFreshSet(TS, N)
+  if TS := getVarsSet(T) .
+
+ op subsFreshSet : TermSet Nat -> Substitution .
+ eq subsFreshSet(emptyTermSet, N) = none .
+ eq subsFreshSet(T | TS, N) = T <- fresh(T, N) ; subsFreshSet(TS, N) .
+
+ op getVarsSet : Term -> TermSet .
+ eq getVarsSet(Q[TL]) = getVarsSet*(TL) .
+ eq getVarsSet(V) = V .
+ eq getVarsSet(T) = emptyTermSet [owise] .
+
+ op getVarsSet* : TermList -> TermSet .
+ eq getVarsSet*((T, TL)) = getVarsSet(T) | getVarsSet*(TL) .
+ eq getVarsSet*(empty) = emptyTermSet .
+endfm
+
+fmod Q-NARROWING is
+ pr NATURAL-REWRITING .
+ pr Q-UNIFICATION .
+ pr FRESH .
+
+ var  M : Module .
+ vars T T' T'' FT LHS RHS : Term .
+ vars TL TL' : TermList .
+ vars TS TS' TS1 TS2 TS3 : TermSet .
+ var  C : Constant .
+ vars V V' : Variable .
+ var  B : Bound .
+ var  R : Rule .
+ var  RS : RuleSet .
+ var  UR : UnifRes .
+ vars URL URL' URL'' : UnifResList .
+ var  Q : Qid .
+ var  AtS : AttrSet .
+ var  COND : Condition .
+ vars TUPL TUPL' : TUPairList .
+ vars N N' : Nat .
+ var  E : Element .
+ vars QU QU' : Queue .
+ var  TUP : TermUnifPair .
+ var  MQM : Map{Qid, Mdt} .
+ var  A : MDT .
+ vars F F' : Forest .
+ vars NL NL' : NatList .
+ var  BR : Branch .
+ var  NNRL : NatNarrResList .
+ var  SB : Substitution .
+ vars STR STR' : String .
+ var  S : Strategy .
+ var  SPS : StackPreviousStates .
+
+ sorts TermUnifPair TUPairList .
+ subsort TermUnifPair < TUPairList .
+
+ op {_,_} : Term UnifResList -> TermUnifPair [ctor] .
+ op mtTUPL : -> TUPairList [ctor] .
+ op __ : TUPairList TUPairList -> TUPairList [ctor assoc id: mtTUPL] .
+
+ sort StackPreviousStates .
+ op mtSPS : -> StackPreviousStates [ctor] .
+ op push : TUPairList StackPreviousStates -> StackPreviousStates [ctor] .
+
+ op inStack? : TUPairList StackPreviousStates -> Bool .
+ eq inStack?(TUPL, mtSPS) = false .
+ eq inStack?(TUPL, push(TUPL', SPS)) = TUPL == TUPL' or-else inStack?(TUPL, SPS) .
+
+ sort Queue Element .
+ subsort Element < Queue .
+ op mtQueue : -> Queue [ctor] .
+ op {_,_,_} : Term Bound UnifResList -> Element [ctor] .
+ op __ : Queue Queue -> Queue [ctor assoc id: mtQueue] .
+
+ sort NarrCont .
+ op noResult : -> NarrCont [ctor] .
+ op <_,_,_> : TermUnifPair Queue Nat -> NarrCont [ctor] .
+
+ sort NatNarrRes NatNarrResList .
+ subsort NatNarrRes < NatNarrResList .
+
+ op <_,_,_> : NatList Rule UnifResList -> NatNarrRes [ctor] .
+ op mtNNRL : -> NatNarrResList [ctor] .
+ op __ : NatNarrResList NatNarrResList -> NatNarrResList [ctor assoc comm id: mtNNRL] .
+
+ op q-narrowing : Module Term Map{Qid, Mdt} Bound Strategy -> NarrCont .
+ ceq q-narrowing(M, T, MQM, B, S) = < simplify*('foo:Exp, TUP), QU, N >
+  if TS := vars(fresh(T, 0)) /\
+     < TUP, QU, N > := narrowing(M, MQM, {T, B, 'foo:Exp -> 'X#0:Exp}, 0, S) .
+ eq q-narrowing(M, T, MQM, B, S) = noResult [owise] .
+
+ op contieneK1 : TUPairList -> Bool .
+ eq contieneK1({T, 'f:Exp -> 'k1.Exp | 'k2.Exp | TS}) = true .
+ eq contieneK1(TUPL) = false [owise] .
+
+ op q-narrowing : Module Term Map{Qid, Mdt} Queue Nat Strategy StackPreviousStates -> NarrCont .
+ ceq q-narrowing(M, T, MQM, QU, N, S, SPS) =
+               if not contieneK1(simplify*('foo:Exp, TUP)) *** inStack?(simplify*('foo:Exp, TUP), SPS)
+               then q-narrowing(M, T, MQM, QU', N', S, SPS)
+               else < simplify*('foo:Exp, TUP), QU', N' > *** < simplify*(TS, TUP), QU', N' >
+               fi
+  if TS := vars(fresh(T, 0)) /\
+     < TUP, QU', N' > := narrowing(M, MQM, QU, N, S) .
+ eq q-narrowing(M, T, MQM, QU, N, S, SPS) = noResult [owise] .
+
+ op narrowing : Module Map{Qid, Mdt} Queue Nat Strategy -> NarrCont .
+ eq narrowing(M, MQM, mtQueue, N, S) = noResult .
+ eq narrowing(M, MQM, {V, B, URL} QU, N, S) = narrowing(M, MQM, QU, N, S) .
+ ceq narrowing(M, MQM, {T, B, URL} QU, N, S) = < { T, URL }, QU, N >
+  if not T :: Variable /\
+     getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool /\
+     vars(T) == emptyTermSet .
+ ceq narrowing(M, MQM, {T, 0, URL} QU, N, S) =  narrowing(M, MQM, QU, N, S) *** < { T, URL }, QU, N > ***
+  if not T :: Variable /\
+     getTerm(metaReduce(M, 'cterm[T])) == 'false.Bool .
+ ceq narrowing(M, MQM, {T, B, URL} QU, N, breadth) =
+                                   narrowing(M, MQM, QU QU', s(N), breadth)
+  if B =/= 0 /\
+     getTerm(metaReduce(M, 'cterm[T])) == 'false.Bool /\
+     FT := fresh(T, N) /\
+     SB := getFreshSub(T, N) /\
+     NNRL := mnt(M, FT, MQM[root(FT)], MQM) /\
+     QU' := genNewQueue(FT, freshURL(URL, SB), NNRL, B -. 1, N) .
+ ceq narrowing(M, MQM, {T, B, URL} QU, N, depth) =
+                                   narrowing(M, MQM, QU' QU, s(N), depth)
+  if SB := getFreshSub(T, N) /\
+     B =/= 0 /\
+     getTerm(metaReduce(M, 'cterm[T])) == 'false.Bool /\
+     FT := fresh(T, N) /\
+     NNRL := mnt(M, FT, MQM[root(FT)], MQM) /\
+     QU' := genNewQueue(FT, freshURL(URL, SB), NNRL, B -. 1, N) .
+*** eq narrowing(M, MQM, QU, N, S) = noResult [owise] .
+
+ op freshURL : UnifResList Substitution -> UnifResList .
+ eq freshURL(mtUR, SB) = mtUR .
+ eq freshURL((T -> TS) ; URL, SB) = (applySB(T, SB) -> applySBTS(TS, SB)) ;
+                                    freshURL(URL, SB) .
+
+ op applySBTS : TermSet Substitution -> TermSet .
+ eq applySBTS(emptyTermSet, SB) = emptyTermSet .
+ eq applySBTS(T | TS, SB) = applySB(T, SB) | applySBTS(TS, SB) .
+
+ op applySB : Term Substitution -> Term .
+ eq applySB(Q[TL], SB) = Q[applySB*(TL, SB)] .
+ eq applySB(C, SB) = C .
+ eq applySB(V, V <- T ; SB) = T .
+ eq applySB(V, SB) = V [owise] .
+
+ op applySB* : TermList Substitution -> TermList .
+ eq applySB*(empty, SB) = empty .
+ eq applySB*((T, TL), SB) = applySB(T, SB), applySB*(TL, SB) .
+
+ op genNewQueue : Term UnifResList NatNarrResList Bound Nat -> Queue .
+ eq genNewQueue(T, URL, mtNNRL, B, N) = mtQueue .
+ ceq genNewQueue(T, URL, < NL, R, URL' > NNRL, B, N) =
+                             narrApplyIn(T, URL'', B, NL, applyPl(getRHS(R), URL'))
+                             genNewQueue(T, URL, NNRL, B, N)
+  if URL'' := add2result*(URL', URL) .
+
+ op narrApplyIn : Term UnifResList Bound NatList Term -> Element .
+ ceq narrApplyIn(T, URL, B, NL, T') = {T'', B, URL}
+  if T'' := substituteIn(T, NL, T') .
+
+ op substituteIn : Term NatList Term ~> Term .
+ eq substituteIn(T, nil, T') = T' .
+ eq substituteIn(Q[TL], NL, T) = Q[substituteIn*(TL, NL, T)] .
+
+ op substituteIn* : TermList NatList Term ~> Term .
+ eq substituteIn*((T, TL), 1 NL, T') = substituteIn(T, NL, T'), TL .
+ eq substituteIn*((T, TL), N NL, T') = T, substituteIn*(TL, sd(N, 1) NL, T') [owise] .
+
+*** OJO
+ op mnt : Module Term MDT Map{Qid, Mdt} -> NatNarrResList .
+ ceq mnt(M, T, leaf(T', R), MQM) = < nil, R, q-unify(LHS ==? T) >
+  if rl LHS => RHS [AtS] . := R .
+ eq mnt(M, T, or(F), MQM) = mntAllRulesOr(M, T, F, MQM) .
+ ceq mnt(M, T, branch(T', BR), MQM) = mnt*(M, T, F, MQM)
+  if < NL, F > := firstCtor(M, T, BR) .
+ ceq mnt(M, T, branch(T', BR), MQM) = newList(NL, NNRL)
+  if < NL, F > := firstDef(M, T, BR) /\
+     NNRL := mnt(M, getTerm(T, NL), MQM[root(getTerm(T, NL))], MQM) .
+ *** In other case narrowing instead of rewriting is applied.
+ *** Note that this case may also be applied above.
+ ceq mnt(M, T, branch(T', BR), MQM) = traverseNNTL(M, T, MQM, NNTL)
+  if NNTL := firstVar(M, T, BR) .
+ eq mnt(M, T, A, MQM) = mtNNRL [owise] .
+
+ op mnt* : Module Term Forest Map{Qid, Mdt} -> NatNarrResList .
+ eq mnt*(M, T, empty, MQM) = mtNNRL .
+ eq mnt*(M, T, A F, MQM) = mnt(M, T, A, MQM) mnt*(M, T, F, MQM) .
+
+ op mntAllRulesOr : Module Term MDT Map{Qid, Mdt} -> NatNarrResList .
+ eq mntAllRulesOr(M, T, empty, MQM) = mtNNRL .
+ eq mntAllRulesOr(M, T, A F, MQM) = mnt(M, T, A, MQM) mntAllRulesOr(M, T, F, MQM) .
+
+ op newList : NatList NatNarrResList -> NatNarrResList .
+ eq newList(NL, mtNNRL) = mtNNRL .
+ eq newList(NL, < NL', R, URL > NNRL) = < NL NL', R, URL > newList(NL, NNRL) .
+
+ op newList : UnifResList NatNarrResList -> NatNarrResList .
+ eq newList(URL, mtNNRL) = mtNNRL .
+ eq newList(URL, < NL', R, URL' > NNRL) = < NL', R, add2result*(URL', URL) >
+                                          newList(URL, NNRL) .
+
+ op firstDef : Module Term Branch -> Branch .
+ eq firstDef(M, T, empty) = empty .
+ ceq firstDef(M, T, < NL, F > BR) = < NL, F >
+  if def(getRls(M), root(getTerm(T, NL))) .
+ eq firstDef(M, T, < NL, F > BR) = firstDef(M, T, BR) [owise] .
+
+ op def : RuleSet Qid -> Bool .
+ eq def(rl Q[TL] => T [AtS] . RS, Q) = true .
+ eq def(rl C => T [AtS] . RS, C) = true .
+ eq def(RS, Q) = false [owise] .
+
+ sort NatNarrTriple .
+ op error : ~> NatNarrTriple [ctor] .
+ op nnt : NatList MDT UnifResList -> NatNarrTriple [ctor] .
+
+ sort NatNarrTripleList .
+ subsort NatNarrTriple < NatNarrTripleList .
+ op mtNNTL : -> NatNarrTripleList [ctor] .
+ op __ : NatNarrTripleList NatNarrTripleList -> NatNarrTripleList [ctor assoc id: mtNNTL] .
+
+ var NNTL : NatNarrTripleList .
+
+ op traverseNNTL : Module Term Map{Qid, Mdt} NatNarrTripleList -> NatNarrResList .
+ eq traverseNNTL(M, T, MQM, mtNNTL) = mtNNRL .
+ ceq traverseNNTL(M, T, MQM, nnt(NL, A, URL) NNTL) = < nil, rl T => T [label('id)] ., URL >
+                                                     traverseNNTL(M, T, MQM, NNTL)
+  if plural?(URL) .
+ ceq traverseNNTL(M, T, MQM, nnt(NL, A, URL) NNTL) = newList(URL, NNRL)
+                                                     traverseNNTL(M, T, MQM, NNTL)
+  if not plural?(URL) /\
+     T'' := apply(T, URL) /\
+     NNRL := mnt(M, T'', A, MQM) .
+
+ op firstVar : Module Term Branch -> NatNarrTripleList .
+ eq firstVar(M, T, empty) = mtNNTL .
+ ceq firstVar(M, T, < NL, F > BR) = putNNT(NL, F', T)
+                                    firstVar(M, T, BR)
+  if getTerm(T, NL) :: Variable /\
+     F' := q-unifies?(M, T, F) .
+ eq firstVar(M, T, < NL, F > BR) = firstVar(M, T, BR) [owise] .
+
+*** OJO
+ op putNNT : NatList Forest Term -> NatNarrTripleList .
+ eq putNNT(NL, empty, T) = mtNNTL .
+ eq putNNT(NL, A F, T) = nnt(NL, A, q-unify(pattern(A) ==? T))
+                         putNNT(NL, F, T) .
+
+ op q-unifies? : Module Term Forest -> Forest .
+ eq q-unifies?(M, T, empty) = empty .
+ ceq q-unifies?(M, T, A F) = if URL =/= mtUR
+                             then A
+                             else empty
+                             fi q-unifies?(M, T, F)
+  if T' := pattern(A) /\
+  *** OJO
+     URL := q-unify(T' ==? T) /\
+     URL =/= errorUR .
+
+ op multipleSubs : Variable TermSet -> [Term] .
+
+ *** It only works with singleton substitutions
+ op apply : Term UnifResList ~> Term .
+ eq apply(Q[TL], URL) = Q[apply*(TL, URL)] .
+ eq apply(C, URL) = C .
+ eq apply(V, ((V -> T) ; URL)) = T .
+ eq apply(V, ((V -> T | T' | TS) ; URL)) = multipleSubs(V, T | T' | TS) .
+ eq apply(V, URL) = V [owise] .
+
+ op apply* : TermList UnifResList ~> TermList .
+ eq apply*(empty, URL) = empty .
+ eq apply*((T, TL), URL) = apply(T, URL), apply*(TL, URL) .
+
+ *** It works with any substitution. Not expected for some programs
+ op applyPl : Term UnifResList ~> Term .
+ eq applyPl(Q[TL], URL) = Q[applyPl*(TL, URL)] .
+ eq applyPl(C, URL) = C .
+ eq applyPl(V, ((V -> T) ; URL)) = T .
+ eq applyPl(V, ((V -> T | T' | TS) ; URL)) = set2term(T | T' | TS) .
+ eq applyPl(V, URL) = V [owise] .
+
+ op set2term : TermSet ~> Term .
+ eq set2term(T) = T .
+ eq set2term(T | TS) = '_?_[T, set2list(TS)] .
+
+ op set2list : TermSet -> TermList .
+ eq set2list(emptyTermSet) = empty .
+ eq set2list(T | TS) = T, set2list(TS) .
+
+ op applyPl* : TermList UnifResList ~> TermList .
+ eq applyPl*(empty, URL) = empty .
+ eq applyPl*((T, TL), URL) = applyPl(T, URL), applyPl*(TL, URL) .
+
+ op getLHS : Rule -> Term .
+ eq getLHS(rl T => T' [AtS] .) = T .
+ eq getLHS(crl T => T' if COND [AtS] .) = T .
+
+ op getRHS : Rule -> Term .
+ eq getRHS(rl T => T' [AtS] .) = T' .
+ eq getRHS(crl T => T' if COND [AtS] .) = T' .
+
+ op parts : Term -> Nat [memo] .
+ eq parts(Q[TL]) = s(parts*(TL)) .
+ eq parts(T) = 1 [owise] .
+
+ op parts* : TermList -> Nat .
+ eq parts*(empty) = 0 .
+ eq parts*((T, TL)) = parts(T) + parts*(TL) .
+
+ op _-._ : Bound Nat -> Bound .
+ eq unbounded -. N = unbounded .
+ eq N -. N' = sd(N, N') .
+
+ op printTUPL : Module TUPairList -> QidList .
+ eq printTUPL(M, mtTUPL) = nil .
+ eq printTUPL(M, {T, URL} TUPL) = '\n '`{ metaPrettyPrint(M, T, po) '`, ' printURL(M, URL) '`}
+                                  printTUPL(M, TUPL) .
+
+ op printURL : Module UnifResList -> QidList .
+ eq printURL(M, mtUR) = nil .
+ ceq printURL(M, (V -> TS) ; URL) = getName(V) '-> printTermSet(M, TS) ';
+                                    printURL(M, URL)
+  if URL =/= mtUR .
+ eq printURL(M, V -> TS) = getName(V) '-> printTermSet(M, TS) .
+
+*** OJO
+ op simplify* : TermSet TUPairList -> TUPairList .
+ ***(
+ eq simplify*(TS, TUPL) = TUPL .
+)
+ eq simplify*(TS, mtTUPL) = mtTUPL .
+ eq simplify*(TS, {T, URL} TUPL) = {T, simplify*(TS, URL)} simplify*(TS, TUPL) .
+
+ op simplify* : TermSet UnifResList -> UnifResList .
+ eq simplify*(emptyTermSet, URL) = mtUR .
+ eq simplify*(T | TS, URL) = quitMoreGeneral(simplify(T, URL)) ;
+                             simplify*(TS, URL) .
+
+ op simplify : Term UnifResList -> UnifResList .
+ eq simplify(T, (T -> TS) ; URL) = defresh(T) -> simplifyTS(TS, URL) .
+ eq simplify(T, URL) = mtUR [owise] .
+
+ op defresh : Variable -> Variable .
+ ceq defresh(V) = qid(STR' + ":Exp")
+  if STR := string(getName(V)) /\
+     STR' := substr(STR, 0, sd(length(STR), 2)) .
+
+ op simplifyTS : TermSet UnifResList -> TermSet .
+ eq simplifyTS(emptyTermSet, URL) = emptyTermSet .
+ eq simplifyTS(T | TS, URL) = simplifyT(T, URL) | simplifyTS(TS, URL) .
+
+ op simplifyT : Term UnifResList -> TermSet .
+ ceq simplifyT(T, URL) = traverseVars(T, TS, URL)
+  if TS := vars(T) .
+
+ op traverseVars : Term TermSet UnifResList -> TermSet .
+ eq traverseVars(T, V | TS, (V -> TS') ; URL) =
+                              traverseVarsAux(T, V | TS, (V -> TS') ; URL) .
+ eq traverseVars(T, TS, URL) = T [owise] .
+
+ op traverseVarsAux : Term TermSet UnifResList -> TermSet .
+ eq traverseVarsAux(T, V | TS, (V -> TS') ; URL) =
+                                   simplifyTS(substitute*(T, V, TS'), URL) .
+ eq traverseVarsAux(T, TS, URL) = simplifyT(T, URL) .
+
+ op substitute* : Term Variable TermSet -> TermSet .
+ eq substitute*(T, V, emptyTermSet) = emptyTermSet .
+ eq substitute*(T, V, T' | TS) = substitute(T, V, T') |
+                                 substitute*(T, V, TS) .
+
+ op substitute : Term Variable Term -> Term .
+ eq substitute(Q[TL], V, T) = Q[substituteTL(TL, V, T)] .
+ eq substitute(C, V, T) = C .
+ eq substitute(V, V', T) = if V == V'
+                           then T
+                           else V
+                           fi .
+
+ op substituteTL : TermList Variable Term -> TermList .
+ eq substituteTL(empty, V, T) = empty .
+ eq substituteTL((T, TL), V, T') = substitute(T, V, T'), substituteTL(TL, V, T') .
+
+ op quitMoreGeneral : UnifResList -> UnifResList .
+ eq quitMoreGeneral(T -> TS) = T -> quitMoreGeneral(TS, TS) .
+ eq quitMoreGeneral(URL) = URL [owise] .
+
+ op quitMoreGeneral : TermSet TermSet -> TermSet .
+ eq quitMoreGeneral(emptyTermSet, TS) = emptyTermSet .
+ eq quitMoreGeneral(T | TS, TS') = if moreGeneral?*(T, TS')
+                                   then quitMoreGeneral(TS, TS')
+                                   else T | quitMoreGeneral(TS, TS')
+                                   fi .
+
+ op moreGeneral?* : Term TermSet -> Bool .
+ eq moreGeneral?*(T, emptyTermSet) = false .
+ ceq moreGeneral?*(T, T' | TS) = moreGeneral?(T, T') or-else moreGeneral?*(T, TS)
+  if T =/= T' .
+ eq moreGeneral?*(T, T' | TS) = moreGeneral?*(T, TS) [owise].
+
+ op moreGeneral? : Term Term -> Bool .
+ eq moreGeneral?(Q[TL], Q[TL']) = moreGeneralTL?(TL, TL') .
+ eq moreGeneral?(V, T) = true .
+ eq moreGeneral?(C, C) = true .
+ eq moreGeneral?(T, T') = false [owise] .
+
+ op moreGeneralTL? : TermList TermList -> Bool .
+ eq moreGeneralTL?(empty, empty) = true .
+ eq moreGeneralTL?((T, TL), (T', TL')) = moreGeneral?(T, T') and-then
+                                         moreGeneralTL?(TL, TL') .
+
+ op vars : Term -> TermSet [memo] .
+ eq vars(Q[TL]) = vars*(TL) .
+ eq vars(V) = V .
+ eq vars(C) = emptyTermSet .
+
+ op vars* : TermList -> TermSet [memo] .
+ eq vars*(empty) = emptyTermSet .
+ eq vars*((T, TL)) = vars(T) | vars*(TL) .
+
+ op varsTS : TermSet -> TermSet [memo] .
+ eq varsTS(emptyTermSet) = emptyTermSet .
+ eq varsTS(T | TS) = vars(T) | varsTS(TS) .
+
+ op mulSub* : TermSet UnifRes -> TermSet .
+ eq mulSub*(emptyTermSet, UR) = emptyTermSet .
+ eq mulSub*(T | TS, UR) = mulSub(T, UR) | mulSub*(TS, UR) .
+
+ op mulSub : Term UnifRes -> TermSet .
+ eq mulSub(T, V -> emptyTermSet) = emptyTermSet .
+ eq mulSub(T, V -> T' | TS) = sub(T, V, T') | mulSub(T, V -> TS) .
+
+ op sub : Term Variable Term -> Term .
+ eq sub(Q[TL], V, T) = Q[sub*(TL, V, T)] .
+ eq sub(C, V, T) = C .
+ eq sub(V, V', T) = if V == V'
+                    then T
+                    else V
+                    fi .
+
+ op sub* : TermList Variable Term -> TermList .
+ eq sub*(empty, V, T) = empty .
+ eq sub*((T, TL), V, T') = sub(T, V, T'), sub*(TL, V, T') .
+
+ op getRHS : Rule -> Term .
+ eq getRHS(rl LHS => RHS [AtS] .) = RHS .
+ eq getRHS(crl LHS => RHS if COND [AtS] .) = RHS .
+endfm
+
+eof
+
+mod TEST is
+ pr Q-NARROWING .
+
+ op mod : -> Module .
+ eq mod = (mod 'DOLEV-YAO is
+  protecting 'EXT-BOOL .
+  protecting 'QID .
+  sorts 'Exp ; 'Subst ; 'SubstList .
+  subsort 'Nat < 'Exp .
+  subsort 'Qid < 'Exp .
+  subsort 'Subst < 'SubstList .
+  op '_=_ : 'Qid 'Exp -> 'Subst [none] .
+  op '_?_ : 'Exp 'Exp -> 'Exp [assoc] .
+  op '_`,_ : 'SubstList 'SubstList -> 'SubstList [assoc comm] .
+  op 'alice : nil -> 'Exp [none] .
+  op 'attack : 'Exp -> 'Exp [metadata("s")] .
+  op 'bob : nil -> 'Exp [none] .
+  op 'cterm : 'Exp -> 'Bool [none] .
+  op 'decrypt : 'Exp 'Exp -> 'Exp [metadata("ss")] .
+  op 'discStep : 'Exp -> 'Exp [metadata("s")] .
+  op 'discover : 'Exp -> 'Exp [metadata("s")] .
+  op 'dolevYao : 'Exp -> 'Exp [metadata("s")] .
+  op 'dyStep : 'Exp -> 'Exp [metadata("s")] .
+  op 'enc : 'Exp 'Exp -> 'Exp [metadata("ss")] .
+  op 'encrypt : 'Exp 'Exp -> 'Exp [metadata("ss")] .
+  op 'ff : nil -> 'Exp [none] .
+  op 'gen : nil -> 'Exp [none] .
+  op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+  op 'inv : 'Exp -> 'Exp [metadata("s")] .
+  op 'k1 : nil -> 'Exp [none] .
+  op 'k2 : nil -> 'Exp [none] .
+  op 'let_in_ : 'SubstList 'Exp -> 'Exp [none] .
+  op 'ma1 : nil -> 'Exp [none] .
+  op 'ma2 : nil -> 'Exp [none] .
+  op 'mb1 : nil -> 'Exp [none] .
+  op 'mb2 : nil -> 'Exp [none] .
+  op 'p : 'Exp 'Exp -> 'Exp [metadata("ss")] .
+  op 'protocol : 'Exp 'Exp -> 'Exp [metadata("ss")] .
+  op 'rb2 : nil -> 'Exp [none] .
+  op 'roles : nil -> 'Exp [none] .
+  op 'secret : 'Exp -> 'Exp [metadata("s")] .
+  op 'secret2 : 'Exp -> 'Exp [metadata("s")] .
+  op 'secret3 : 'Exp -> 'Exp [metadata("s")] .
+  op 'true : nil -> 'Exp [none] .
+  op 'tt : nil -> 'Exp [none] .
+  none
+  eq 'cterm['E:Exp] = 'true.Bool [owise] .
+  eq 'cterm['N:Nat] = 'true.Bool [none] .
+  eq 'cterm['alice.Exp] = 'true.Bool [none] .
+  eq 'cterm['bob.Exp] = 'true.Bool [none] .
+  eq 'cterm['ff.Exp] = 'true.Bool [none] .
+  eq 'cterm['gen.Exp] = 'false.Bool [none] .
+  eq 'cterm['k1.Exp] = 'true.Bool [none] .
+  eq 'cterm['k2.Exp] = 'true.Bool [none] .
+  eq 'cterm['ma1.Exp] = 'true.Bool [none] .
+  eq 'cterm['ma2.Exp] = 'true.Bool [none] .
+  eq 'cterm['mb1.Exp] = 'true.Bool [none] .
+  eq 'cterm['mb2.Exp] = 'true.Bool [none] .
+  eq 'cterm['rb2.Exp] = 'true.Bool [none] .
+  eq 'cterm['roles.Exp] = 'false.Bool [none] .
+  eq 'cterm['true.Exp] = 'true.Bool [none] .
+  eq 'cterm['tt.Exp] = 'true.Bool [none] .
+  eq 'cterm['_?_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+  eq 'cterm['attack['V@#$0:Exp]] = 'false.Bool [none] .
+  eq 'cterm['decrypt['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+  eq 'cterm['discStep['V@#$0:Exp]] = 'false.Bool [none] .
+  eq 'cterm['discover['V@#$0:Exp]] = 'false.Bool [none] .
+  eq 'cterm['dolevYao['V@#$0:Exp]] = 'false.Bool [none] .
+  eq 'cterm['dyStep['V@#$0:Exp]] = 'false.Bool [none] .
+  eq 'cterm['enc['V@#$0:Exp,'V@#$1:Exp]] = '_and-then_['cterm['V@#$0:Exp],'cterm['V@#$1:Exp]] [none] .
+  eq 'cterm['encrypt['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+  eq 'cterm['if_then_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+  eq 'cterm['inv['V@#$0:Exp]] = 'cterm['V@#$0:Exp] [none] .
+  eq 'cterm['p['V@#$0:Exp,'V@#$1:Exp]] = '_and-then_['cterm['V@#$0:Exp],'cterm['V@#$1:Exp]] [none] .
+  eq 'cterm['protocol['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+  eq 'cterm['s_['V:Exp]] = 'cterm['V:Exp] [none] .
+  eq 'cterm['secret['V@#$0:Exp]] = 'false.Bool [none] .
+  eq 'cterm['secret2['V@#$0:Exp]] = 'false.Bool [none] .
+  eq 'cterm['secret3['V@#$0:Exp]] = 'false.Bool [none] .
+  rl 'gen.Exp => '0.Zero [label('L@#$0)] .
+  rl 'gen.Exp => 'attack['gen.Exp] [label('L@#$1)] .
+  rl 'gen.Exp => 'decrypt['gen.Exp,'gen.Exp] [label('L@#$2)] .
+  rl 'gen.Exp => 'discStep['gen.Exp] [label('L@#$3)] .
+  rl 'gen.Exp => 'discover['gen.Exp] [label('L@#$4)] .
+  rl 'gen.Exp => 'dolevYao['gen.Exp] [label('L@#$5)] .
+  rl 'gen.Exp => 'dyStep['gen.Exp] [label('L@#$6)] .
+  rl 'gen.Exp => 'enc['gen.Exp,'gen.Exp] [label('L@#$7)] .
+  rl 'gen.Exp => 'encrypt['gen.Exp,'gen.Exp] [label('L@#$8)] .
+  rl 'gen.Exp => 'inv['gen.Exp] [label('L@#$9)] .
+  rl 'gen.Exp => 'p['gen.Exp,'gen.Exp] [label('L@#$10)] .
+  rl 'gen.Exp => 'protocol['gen.Exp,'gen.Exp] [label('L@#$11)] .
+  rl 'gen.Exp => 's_['gen.Exp] [label('L@#$12)] .
+  rl 'gen.Exp => 'secret['gen.Exp] [label('L@#$13)] .
+  rl 'gen.Exp => 'secret2['gen.Exp] [label('L@#$14)] .
+  rl 'gen.Exp => 'secret3['gen.Exp] [label('L@#$15)] .
+  rl 'roles.Exp => 'alice.Exp [label('L@#$16)] .
+  rl 'roles.Exp => 'bob.Exp [label('L@#$17)] .
+  rl '_?_['E1:Exp,'E2:Exp] => 'E1:Exp [label('L@#$18)] .
+  rl '_?_['E1:Exp,'E2:Exp] => 'E2:Exp [label('L@#$19)] .
+  rl 'attack['M:Exp] => 'secret['discover['M:Exp]] [label('L@#$20)] .
+  rl 'decrypt['enc['M:Exp,'k1.Exp],'inv['k1.Exp]] => 'M:Exp [label('L@#$21)] .
+  rl 'decrypt['enc['M:Exp,'k2.Exp],'inv['k2.Exp]] => 'M:Exp [label('L@#$22)] .
+  rl 'discStep['M:Exp] => '_?_['protocol['roles.Exp,'M:Exp],'dolevYao['M:Exp]] [label('L@#$23)] .
+  rl 'discover['M:Exp] => '_?_['M:Exp,'discover['_?_['discStep['M:Exp],'M:Exp]]] [label('L@#$24)] .
+  rl 'dolevYao['M:Exp] => '_?_['M:Exp,'dolevYao['_?_['dyStep['M:Exp],'M:Exp]]] [label('L@#$25)] .
+  rl 'dyStep['M:Exp] => 'decrypt['M:Exp,'M:Exp] [label('L@#$26)] .
+  rl 'dyStep['M:Exp] => 'encrypt['M:Exp,'M:Exp] [label('L@#$27)] .
+  rl 'dyStep['M:Exp] => 'p['M:Exp,'M:Exp] [label('L@#$28)] .
+  rl 'dyStep['p['M1:Exp,'M2:Exp]] => '_?_['M1:Exp,'M2:Exp] [label('L@#$29)] .
+  rl 'encrypt['M:Exp,'K:Exp] => 'enc['M:Exp,'K:Exp] [label('L@#$30)] .
+  rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [label('L@#$31)] .
+  rl 'protocol['alice.Exp,'ma1.Exp] => 'mb1.Exp [label('L@#$32)] .
+  rl 'protocol['alice.Exp,'ma2.Exp] => 'mb2.Exp [label('L@#$33)] .
+  rl 'protocol['bob.Exp,'mb2.Exp] => 'rb2.Exp [label('L@#$34)] .
+  rl 'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]] => 'ma2.Exp [label('L@#$35)] .
+  rl 'secret['rb2.Exp] => 'true.Exp [label('L@#$36)] .
+  rl 'secret2['ma2.Exp] => 'true.Exp [label('L@#$37)] .
+  rl 'secret3['p['ma1.Exp,'mb1.Exp]] => 'true.Exp [label('L@#$38)] .
+endm) .
+
+  op mqm : -> Map{Qid, Mdt} .
+  eq mqm = ('_?_ |-> or(leaf('_?_['V#@$T0:Exp,'V#@$T1:Exp], rl '_?_['E1:Exp,'E2:Exp] =>
+    'E1:Exp [label('L@#$18)] .) leaf('_?_['V#@$T0:Exp,'V#@$T1:Exp], rl '_?_['E1:Exp,'E2:Exp] => 'E2:Exp [label('L@#$19)] .)), 'attack |-> leaf('attack[
+    'V#@$T2:Exp], rl 'attack['M:Exp] => 'secret['discover['M:Exp]] [label('L@#$20)] .), 'decrypt |-> branch('decrypt['V#@$T3:Exp,'V#@$T4:Exp], < 1,branch(
+    'decrypt['enc['V#@$T5:Exp,'V#@$T6:Exp],'V#@$T4:Exp], < 2,branch('decrypt['enc['V#@$T5:Exp,'V#@$T6:Exp],'inv['V#@$T9:Exp]], < 1 2,branch('decrypt['enc[
+    'V#@$T5:Exp,'k1.Exp],'inv['V#@$T9:Exp]], < 2 1,leaf('decrypt['enc['V#@$T5:Exp,'k1.Exp],'inv['k1.Exp]], rl 'decrypt['enc['M:Exp,'k1.Exp],'inv['k1.Exp]] =>
+    'M:Exp [label('L@#$21)] .) >) branch('decrypt['enc['V#@$T5:Exp,'k2.Exp],'inv['V#@$T9:Exp]], < 2 1,leaf('decrypt['enc['V#@$T5:Exp,'k2.Exp],'inv['k2.Exp]], rl
+    'decrypt['enc['M:Exp,'k2.Exp],'inv['k2.Exp]] => 'M:Exp [label('L@#$22)] .) >) > < 2 1,branch('decrypt['enc['V#@$T5:Exp,'V#@$T6:Exp],'inv['k1.Exp]], < 1 2,
+    leaf('decrypt['enc['V#@$T5:Exp,'k1.Exp],'inv['k1.Exp]], rl 'decrypt['enc['M:Exp,'k1.Exp],'inv['k1.Exp]] => 'M:Exp [label('L@#$21)] .) >) branch('decrypt[
+    'enc['V#@$T5:Exp,'V#@$T6:Exp],'inv['k2.Exp]], < 1 2,leaf('decrypt['enc['V#@$T5:Exp,'k2.Exp],'inv['k2.Exp]], rl 'decrypt['enc['M:Exp,'k2.Exp],'inv['k2.Exp]]
+    => 'M:Exp [label('L@#$22)] .) >) >) > < 1 2,branch('decrypt['enc['V#@$T5:Exp,'k1.Exp],'V#@$T4:Exp], < 2,branch('decrypt['enc['V#@$T5:Exp,'k1.Exp],'inv[
+    'V#@$T54:Exp]], < 2 1,leaf('decrypt['enc['V#@$T5:Exp,'k1.Exp],'inv['k1.Exp]], rl 'decrypt['enc['M:Exp,'k1.Exp],'inv['k1.Exp]] => 'M:Exp [label('L@#$21)] .)
+    >) >) branch('decrypt['enc['V#@$T5:Exp,'k2.Exp],'V#@$T4:Exp], < 2,branch('decrypt['enc['V#@$T5:Exp,'k2.Exp],'inv['V#@$T66:Exp]], < 2 1,leaf('decrypt['enc[
+    'V#@$T5:Exp,'k2.Exp],'inv['k2.Exp]], rl 'decrypt['enc['M:Exp,'k2.Exp],'inv['k2.Exp]] => 'M:Exp [label('L@#$22)] .) >) >) >) > < 2,branch('decrypt[
+    'V#@$T3:Exp,'inv['V#@$T85:Exp]], < 1,branch('decrypt['enc['V#@$T86:Exp,'V#@$T87:Exp],'inv['V#@$T85:Exp]], < 1 2,branch('decrypt['enc['V#@$T86:Exp,'k1.Exp],
+    'inv['V#@$T85:Exp]], < 2 1,leaf('decrypt['enc['V#@$T86:Exp,'k1.Exp],'inv['k1.Exp]], rl 'decrypt['enc['M:Exp,'k1.Exp],'inv['k1.Exp]] => 'M:Exp [label(
+    'L@#$21)] .) >) branch('decrypt['enc['V#@$T86:Exp,'k2.Exp],'inv['V#@$T85:Exp]], < 2 1,leaf('decrypt['enc['V#@$T86:Exp,'k2.Exp],'inv['k2.Exp]], rl 'decrypt[
+    'enc['M:Exp,'k2.Exp],'inv['k2.Exp]] => 'M:Exp [label('L@#$22)] .) >) > < 2 1,branch('decrypt['enc['V#@$T86:Exp,'V#@$T87:Exp],'inv['k1.Exp]], < 1 2,leaf(
+    'decrypt['enc['V#@$T86:Exp,'k1.Exp],'inv['k1.Exp]], rl 'decrypt['enc['M:Exp,'k1.Exp],'inv['k1.Exp]] => 'M:Exp [label('L@#$21)] .) >) branch('decrypt['enc[
+    'V#@$T86:Exp,'V#@$T87:Exp],'inv['k2.Exp]], < 1 2,leaf('decrypt['enc['V#@$T86:Exp,'k2.Exp],'inv['k2.Exp]], rl 'decrypt['enc['M:Exp,'k2.Exp],'inv['k2.Exp]] =>
+    'M:Exp [label('L@#$22)] .) >) >) > < 2 1,branch('decrypt['V#@$T3:Exp,'inv['k1.Exp]], < 1,branch('decrypt['enc['V#@$T131:Exp,'V#@$T132:Exp],'inv['k1.Exp]], <
+    1 2,leaf('decrypt['enc['V#@$T131:Exp,'k1.Exp],'inv['k1.Exp]], rl 'decrypt['enc['M:Exp,'k1.Exp],'inv['k1.Exp]] => 'M:Exp [label('L@#$21)] .) >) >) branch(
+    'decrypt['V#@$T3:Exp,'inv['k2.Exp]], < 1,branch('decrypt['enc['V#@$T143:Exp,'V#@$T144:Exp],'inv['k2.Exp]], < 1 2,leaf('decrypt['enc['V#@$T143:Exp,'k2.Exp],
+    'inv['k2.Exp]], rl 'decrypt['enc['M:Exp,'k2.Exp],'inv['k2.Exp]] => 'M:Exp [label('L@#$22)] .) >) >) >) >), 'discStep |-> leaf('discStep['V#@$T161:Exp], rl
+    'discStep['M:Exp] => '_?_['protocol['roles.Exp,'M:Exp],'dolevYao['M:Exp]] [label('L@#$23)] .), 'discover |-> leaf('discover['V#@$T162:Exp], rl 'discover[
+    'M:Exp] => '_?_['M:Exp,'discover['_?_['discStep['M:Exp],'M:Exp]]] [label('L@#$24)] .), 'dolevYao |-> leaf('dolevYao['V#@$T163:Exp], rl 'dolevYao['M:Exp] =>
+    '_?_['M:Exp,'dolevYao['_?_['dyStep['M:Exp],'M:Exp]]] [label('L@#$25)] .), 'dyStep |-> or(leaf('dyStep['V#@$T164:Exp], rl 'dyStep['M:Exp] => 'decrypt['M:Exp,
+    'M:Exp] [label('L@#$26)] .) leaf('dyStep['V#@$T164:Exp], rl 'dyStep['M:Exp] => 'encrypt['M:Exp,'M:Exp] [label('L@#$27)] .) leaf('dyStep['V#@$T164:Exp], rl
+    'dyStep['M:Exp] => 'p['M:Exp,'M:Exp] [label('L@#$28)] .) branch('dyStep['V#@$T164:Exp], < 1,leaf('dyStep['p['V#@$T168:Exp,'V#@$T169:Exp]], rl 'dyStep['p[
+    'M1:Exp,'M2:Exp]] => '_?_['M1:Exp,'M2:Exp] [label('L@#$29)] .) >)), 'encrypt |-> leaf('encrypt['V#@$T171:Exp,'V#@$T172:Exp], rl 'encrypt['M:Exp,'K:Exp] =>
+    'enc['M:Exp,'K:Exp] [label('L@#$30)] .), 'gen.Exp |-> or(leaf('gen.Exp, rl 'gen.Exp => '0.Zero [label('L@#$0)] .) leaf('gen.Exp, rl 'gen.Exp => 'attack[
+    'gen.Exp] [label('L@#$1)] .) leaf('gen.Exp, rl 'gen.Exp => 'decrypt['gen.Exp,'gen.Exp] [label('L@#$2)] .) leaf('gen.Exp, rl 'gen.Exp => 'discStep['gen.Exp]
+    [label('L@#$3)] .) leaf('gen.Exp, rl 'gen.Exp => 'discover['gen.Exp] [label('L@#$4)] .) leaf('gen.Exp, rl 'gen.Exp => 'dolevYao['gen.Exp] [label('L@#$5)] .)
+    leaf('gen.Exp, rl 'gen.Exp => 'dyStep['gen.Exp] [label('L@#$6)] .) leaf('gen.Exp, rl 'gen.Exp => 'enc['gen.Exp,'gen.Exp] [label('L@#$7)] .) leaf('gen.Exp,
+    rl 'gen.Exp => 'encrypt['gen.Exp,'gen.Exp] [label('L@#$8)] .) leaf('gen.Exp, rl 'gen.Exp => 'inv['gen.Exp] [label('L@#$9)] .) leaf('gen.Exp, rl 'gen.Exp =>
+    'p['gen.Exp,'gen.Exp] [label('L@#$10)] .) leaf('gen.Exp, rl 'gen.Exp => 'protocol['gen.Exp,'gen.Exp] [label('L@#$11)] .) leaf('gen.Exp, rl 'gen.Exp => 's_[
+    'gen.Exp] [label('L@#$12)] .) leaf('gen.Exp, rl 'gen.Exp => 'secret['gen.Exp] [label('L@#$13)] .) leaf('gen.Exp, rl 'gen.Exp => 'secret2['gen.Exp] [label(
+    'L@#$14)] .) leaf('gen.Exp, rl 'gen.Exp => 'secret3['gen.Exp] [label('L@#$15)] .)), 'if_then_ |-> branch('if_then_['V#@$T173:Exp,'V#@$T174:Exp], < 1,leaf(
+    'if_then_['tt.Exp,'V#@$T174:Exp], rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [label('L@#$31)] .) >), 'protocol |-> branch('protocol['V#@$T181:Exp,
+    'V#@$T182:Exp], < 1,branch('protocol['alice.Exp,'V#@$T182:Exp], < 2,leaf('protocol['alice.Exp,'ma1.Exp], rl 'protocol['alice.Exp,'ma1.Exp] => 'mb1.Exp [
+    label('L@#$32)] .) leaf('protocol['alice.Exp,'ma2.Exp], rl 'protocol['alice.Exp,'ma2.Exp] => 'mb2.Exp [label('L@#$33)] .) >) branch('protocol['bob.Exp,
+    'V#@$T182:Exp], < 2,leaf('protocol['bob.Exp,'mb2.Exp], rl 'protocol['bob.Exp,'mb2.Exp] => 'rb2.Exp [label('L@#$34)] .) branch('protocol['bob.Exp,'p[
+    'V#@$T192:Exp,'V#@$T193:Exp]], < 2 1,branch('protocol['bob.Exp,'p['ma1.Exp,'V#@$T193:Exp]], < 2 2,leaf('protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]], rl
+    'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]] => 'ma2.Exp [label('L@#$35)] .) >) > < 2 2,branch('protocol['bob.Exp,'p['V#@$T192:Exp,'mb1.Exp]], < 2 1,leaf(
+    'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]], rl 'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]] => 'ma2.Exp [label('L@#$35)] .) >) >) >) > < 2,branch('protocol[
+    'V#@$T181:Exp,'ma1.Exp], < 1,leaf('protocol['alice.Exp,'ma1.Exp], rl 'protocol['alice.Exp,'ma1.Exp] => 'mb1.Exp [label('L@#$32)] .) >) branch('protocol[
+    'V#@$T181:Exp,'ma2.Exp], < 1,leaf('protocol['alice.Exp,'ma2.Exp], rl 'protocol['alice.Exp,'ma2.Exp] => 'mb2.Exp [label('L@#$33)] .) >) branch('protocol[
+    'V#@$T181:Exp,'mb2.Exp], < 1,leaf('protocol['bob.Exp,'mb2.Exp], rl 'protocol['bob.Exp,'mb2.Exp] => 'rb2.Exp [label('L@#$34)] .) >) branch('protocol[
+    'V#@$T181:Exp,'p['V#@$T246:Exp,'V#@$T247:Exp]], < 1,branch('protocol['bob.Exp,'p['V#@$T246:Exp,'V#@$T247:Exp]], < 2 1,branch('protocol['bob.Exp,'p['ma1.Exp,
+    'V#@$T247:Exp]], < 2 2,leaf('protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]], rl 'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]] => 'ma2.Exp [label('L@#$35)] .) >) > < 2
+    2,branch('protocol['bob.Exp,'p['V#@$T246:Exp,'mb1.Exp]], < 2 1,leaf('protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]], rl 'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]]
+    => 'ma2.Exp [label('L@#$35)] .) >) >) > < 2 1,branch('protocol['V#@$T181:Exp,'p['ma1.Exp,'V#@$T247:Exp]], < 1,branch('protocol['bob.Exp,'p['ma1.Exp,
+    'V#@$T247:Exp]], < 2 2,leaf('protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]], rl 'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]] => 'ma2.Exp [label('L@#$35)] .) >) > < 2
+    2,branch('protocol['V#@$T181:Exp,'p['ma1.Exp,'mb1.Exp]], < 1,leaf('protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]], rl 'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]] =>
+    'ma2.Exp [label('L@#$35)] .) >) >) > < 2 2,branch('protocol['V#@$T181:Exp,'p['V#@$T246:Exp,'mb1.Exp]], < 1,branch('protocol['bob.Exp,'p['V#@$T246:Exp,
+    'mb1.Exp]], < 2 1,leaf('protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]], rl 'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]] => 'ma2.Exp [label('L@#$35)] .) >) > < 2 1,
+    branch('protocol['V#@$T181:Exp,'p['ma1.Exp,'mb1.Exp]], < 1,leaf('protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]], rl 'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]] =>
+    'ma2.Exp [label('L@#$35)] .) >) >) >) >), 'roles.Exp |-> or(leaf('roles.Exp, rl 'roles.Exp => 'alice.Exp [label('L@#$16)] .) leaf('roles.Exp, rl 'roles.Exp
+    => 'bob.Exp [label('L@#$17)] .)), 'secret |-> branch('secret['V#@$T339:Exp], < 1,leaf('secret['rb2.Exp], rl 'secret['rb2.Exp] => 'true.Exp [label('L@#$36)]
+    .) >), 'secret2 |-> branch('secret2['V#@$T346:Exp], < 1,leaf('secret2['ma2.Exp], rl 'secret2['ma2.Exp] => 'true.Exp [label('L@#$37)] .) >), 'secret3 |->
+    branch('secret3['V#@$T353:Exp], < 1,branch('secret3['p['V#@$T357:Exp,'V#@$T358:Exp]], < 1 1,branch('secret3['p['ma1.Exp,'V#@$T358:Exp]], < 1 2,leaf(
+    'secret3['p['ma1.Exp,'mb1.Exp]], rl 'secret3['p['ma1.Exp,'mb1.Exp]] => 'true.Exp [label('L@#$38)] .) >) > < 1 2,branch('secret3['p['V#@$T357:Exp,'mb1.Exp]],
+    < 1 1,leaf('secret3['p['ma1.Exp,'mb1.Exp]], rl 'secret3['p['ma1.Exp,'mb1.Exp]] => 'true.Exp [label('L@#$38)] .) >) >) >)) .
+
+  op queue : -> Queue .
+  eq queue = ({'secret['protocol['roles.Exp,'M#7:Exp]],1,('E1:Exp -> ('_?_['discStep['M#2#3#4#5#6:Exp],'M#2#3#4#5#6:Exp])
+| ('discStep['M#2#3#4#5#6:Exp])
+| ('protocol['roles.Exp,'M#7:Exp])) ; ('E2:Exp -> ('discover['_?_['discStep['M#2#3#4#5#6:Exp],'M#2#3#4#5#6:Exp]])
+| ('discover['_?_['discStep['_?_['discStep['M#2#3#4#5#6:Exp],'M#2#3#4#5#6:Exp]],'_?_['discStep['M#2#3#4#5#6:Exp],'M#2#3#4#5#6:Exp]]])
+| ('dolevYao['M#7:Exp])) ; ('M#1:Exp -> 'M#2#3#4#5#6:Exp) ; ('M#2#3#4#5#6:Exp -> 'E1:Exp
+| 'E2:Exp
+| 'M#7:Exp) ; ('M#7:Exp -> ('_?_['discStep['M#2#3#4#5#6:Exp],'M#2#3#4#5#6:Exp])) ; 'X#1:Exp -> 'M#1:Exp}) .
+
+ op br : -> Branch .
+ eq br = (< 1,branch('protocol['alice.Exp,'V#@$T182:Exp], < 2,leaf('protocol['alice.Exp,
+    'ma1.Exp], rl 'protocol['alice.Exp,'ma1.Exp] => 'mb1.Exp [label('L@#$32)] .) leaf('protocol['alice.Exp,'ma2.Exp], rl 'protocol['alice.Exp,
+    'ma2.Exp] => 'mb2.Exp [label('L@#$33)] .) >) branch('protocol['bob.Exp,'V#@$T182:Exp], < 2,leaf('protocol['bob.Exp,'mb2.Exp], rl 'protocol[
+    'bob.Exp,'mb2.Exp] => 'rb2.Exp [label('L@#$34)] .) branch('protocol['bob.Exp,'p['V#@$T192:Exp,'V#@$T193:Exp]], < 2 1,branch('protocol['bob.Exp,
+    'p['ma1.Exp,'V#@$T193:Exp]], < 2 2,leaf('protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]], rl 'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]] => 'ma2.Exp [
+    label('L@#$35)] .) >) > < 2 2,branch('protocol['bob.Exp,'p['V#@$T192:Exp,'mb1.Exp]], < 2 1,leaf('protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]], rl
+    'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]] => 'ma2.Exp [label('L@#$35)] .) >) >) >) > < 2,branch('protocol['V#@$T181:Exp,'ma1.Exp], < 1,leaf(
+    'protocol['alice.Exp,'ma1.Exp], rl 'protocol['alice.Exp,'ma1.Exp] => 'mb1.Exp [label('L@#$32)] .) >) branch('protocol['V#@$T181:Exp,'ma2.Exp],
+    < 1,leaf('protocol['alice.Exp,'ma2.Exp], rl 'protocol['alice.Exp,'ma2.Exp] => 'mb2.Exp [label('L@#$33)] .) >) branch('protocol['V#@$T181:Exp,
+    'mb2.Exp], < 1,leaf('protocol['bob.Exp,'mb2.Exp], rl 'protocol['bob.Exp,'mb2.Exp] => 'rb2.Exp [label('L@#$34)] .) >) branch('protocol[
+    'V#@$T181:Exp,'p['V#@$T246:Exp,'V#@$T247:Exp]], < 1,branch('protocol['bob.Exp,'p['V#@$T246:Exp,'V#@$T247:Exp]], < 2 1,branch('protocol[
+    'bob.Exp,'p['ma1.Exp,'V#@$T247:Exp]], < 2 2,leaf('protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]], rl 'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]] =>
+    'ma2.Exp [label('L@#$35)] .) >) > < 2 2,branch('protocol['bob.Exp,'p['V#@$T246:Exp,'mb1.Exp]], < 2 1,leaf('protocol['bob.Exp,'p['ma1.Exp,
+    'mb1.Exp]], rl 'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]] => 'ma2.Exp [label('L@#$35)] .) >) >) > < 2 1,branch('protocol['V#@$T181:Exp,'p[
+    'ma1.Exp,'V#@$T247:Exp]], < 1,branch('protocol['bob.Exp,'p['ma1.Exp,'V#@$T247:Exp]], < 2 2,leaf('protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]], rl
+    'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]] => 'ma2.Exp [label('L@#$35)] .) >) > < 2 2,branch('protocol['V#@$T181:Exp,'p['ma1.Exp,'mb1.Exp]], <
+    1,leaf('protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]], rl 'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]] => 'ma2.Exp [label('L@#$35)] .) >) >) > < 2 2,
+    branch('protocol['V#@$T181:Exp,'p['V#@$T246:Exp,'mb1.Exp]], < 1,branch('protocol['bob.Exp,'p['V#@$T246:Exp,'mb1.Exp]], < 2 1,leaf('protocol[
+    'bob.Exp,'p['ma1.Exp,'mb1.Exp]], rl 'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]] => 'ma2.Exp [label('L@#$35)] .) >) > < 2 1,branch('protocol[
+    'V#@$T181:Exp,'p['ma1.Exp,'mb1.Exp]], < 1,leaf('protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]], rl 'protocol['bob.Exp,'p['ma1.Exp,'mb1.Exp]] =>
+    'ma2.Exp [label('L@#$35)] .) >) >) >) >) .
+
+ op term : -> Term .
+ eq term = ('secret['protocol['roles.Exp,'M#7:Exp]]) .
+
+ op term2 : -> Term .
+ eq term2 = ('protocol['bob.Exp,'E2:Exp]) .
+
+ op term3 : -> Term .
+ eq term3 = ('protocol['bob.Exp,'protocol['alice.Exp,'E2:Exp]]) .
+endm
+
+red in TEST : natNext(mod, 'dyStep['s_['gen.Exp]], mqm) .
+
+red mt(mod, 'dyStep['s_['gen.Exp]], mqm['dyStep], mqm) .
+
+red metaXapply(mod, 'dyStep['s_['gen.Exp]], 'L@#$26, none, 0, unbounded, 0) .
+
+red metaApply(mod, 'dyStep['s_['gen.Exp]], 'L@#$26, none, 0) .
+
+red natNext(mod, 'secret['dyStep['s_['gen.Exp]]], mqm) .
+
+eof
+
+red in TEST : narrowing(mod,
+                        mqm,
+                        {'discover['_?_['discStep['enc['ma1.Exp,'k1.Exp]],'enc['ma1.Exp,'k1.Exp]]],1,
+                         'foo:Exp -> 'X:Exp}, 0, depth) .
+
+eof
+
+red mnt(mod,
+        'protocol['bob.Exp,'enc['ma1.Exp,'X#0:Exp]],
+        mqm['protocol],
+        mqm) .
+
+red genNewQueue('protocol['bob.Exp,'enc['ma1.Exp,'X#0#0:Exp]],
+                'foo:Exp -> 'X:Exp,
+                < (nil).NatList,rl 'protocol['bob.Exp,'enc['ma1.Exp,'k1.Exp]] => 'mb1.Exp [label('L@#$32)] .,'X#0:Exp -> 'k1.Exp >, 0, 0) .
+
+eof
+
+red in TEST : mnt(mod,
+                  term,
+                  mqm['secret],
+                  mqm) .
+
+red in TEST : mnt(mod,
+                  term2,
+                  mqm['protocol],
+                  mqm) .
+
+red in TEST : mnt(mod,
+                  term3,
+                  mqm['protocol],
+                  mqm) .
+
+eof
+
+red in TEST : narrowing(mod,
+                        mqm,
+                        {'secret['protocol['bob.Exp,'protocol['alice.Exp,'E2:Exp]]],1,
+                         mtUR}, 6) .
+
+red in TEST : firstVar(mod, term2, br) .
+
+eof
+
+red in TEST : metaReduce(mod, 'cterm[
+'_?_['discStep['_?_['discStep[
+    'M#2#4#5#7#10:Exp],'M#2#4#5#7#10:Exp]],'_?_['discStep['M#2#4#5#7#10:Exp],'M#2#4#5#7#10:Exp]]]) .
+
+eof
+
+red in TEST : narrowing(mod,
+                        mqm,
+                        queue,
+                        8) .
+
+eof
+
+red getFreshSub('f['_?_['V#@$T3:Exp,'c['V#@$T4:Exp]],'_?_['V#@$T3:Exp,'c['V#@$T4:Exp]]], 1) .
+
+red getVarsSet('f['_?_['V#@$T3:Exp,'c['V#@$T4:Exp]],'_?_['V#@$T3:Exp,'c['V#@$T4:Exp]]]) .
+
+eof
+
+red in TEST : narrowing(mod,
+                        mqm,
+                        {'f['E1:Exp,'_?_['V#@$T3#3:Exp,'c['V#@$T4#3:Exp]]], 1, mtUR},
+                        0) .
+
+red in TEST : narrowing(mod,
+                        mqm,
+                        {'f['X:Exp, 'X:Exp], 6, mtUR},
+                        0) .
+
+eof
+
+red in TEST : mnt(mod,
+                  'f['E1:Exp,'_?_['V#@$T3#3:Exp,'c['V#@$T4#3:Exp]]],
+                  mqm['f],
+                  mqm) .
+
+red in TEST : mnt(mod,
+                  'f['_?_['V#@$T3:Exp,'c['V#@$T4:Exp]],'_?_['V#@$T3:Exp,'c['V#@$T4:Exp]]],
+                  mqm['f],
+                  mqm) .
+
+red in TEST : narrowing(mod,
+                        mqm,
+                        {'f['X:Exp, 'X:Exp], 1, mtUR},
+                        0) .
+
+red applyPl('f['X#0:Exp, 'X#0:Exp], 'X#0:Exp -> 'V#@$T3:Exp | ('c['V#@$T4:Exp])) .
+
+red in TEST : q-narrowing(mod,
+                          'f['X:Exp, 'X:Exp],
+                          mqm,
+                          6) .
+
+red in Q-NARROWING : MDTMap(upModule('TEST, true))['f] .
+
+red in Q-NARROWING : q-unify('f['X:Exp, 'X:Exp] ==? 'f['c['A:Exp], 'B:Exp]) .
+
+red in Q-NARROWING : mnt(upModule('TEST, true), 'f['X:Exp, 'X:Exp],
+                         MDTMap(upModule('TEST, true))['f],
+                         MDTMap(upModule('TEST, true))) .
+
+eof
+
+red in Q-NARROWING : narrowing(upModule('TEST, true), 'f['X:Exp, 'Y:Exp], 2) .
+red in Q-NARROWING : narrowing(upModule('TEST, true), 'f['X:Exp, 'X:Exp], 2) .
+
+red unifiedLHS(fresh*(getRls(upModule('TEST, true)), 0), 'f['X:Exp, 'Y:Exp]) .
+red add2result*(('V#0:Exp -> 'V#1:Exp) ; ('V'#0:Exp -> 'V'#1:Exp), ('X:Exp -> 'V#0:Exp) ; ('Y:Exp -> 'V'#0:Exp)) .
+
+'g[multipleSubs('V'#3:Exp, 'V'#3:Exp
+| ('g['V'#1:Exp,'g['V'#3:Exp,'V#3:Exp]])),'f['V#1:Exp,'V'#1:Exp]],
+
+('V#1:Exp -> ('f['V#3:Exp,'V'#3:Exp])) ; ('V#3:Exp -> ('f['V#1:Exp,'V'#1:Exp])) ; (
+    'V'#3:Exp -> 'V'#3:Exp
+| ('g['V'#1:Exp,'g['V'#3:Exp,'V#3:Exp]])) ; 'X:Exp -> ('f['V#1:Exp,'V'#1:Exp])

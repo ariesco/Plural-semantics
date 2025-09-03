@@ -1,0 +1,67 @@
+(plural INFER is
+
+  discover is plural .
+  discover(M) -> M ? discover(discStep(M) ? M) .
+  discStep is plural .
+  discStep(M) -> ask(guardians, M) .
+
+  genPairs is plural .
+  genPairs(P) -> P ? genPairs(genPairsStep(P) ? P) .
+  genPairsStep is plural .
+  genPairsStep(P) -> p(P, P) .
+
+  genPairsBad is plural .
+  genPairsBad(P) -> P ? genPairsBad(genPairsStep(P)) .
+
+  zPairs -> genPairs(z) .
+  zPairsBad -> genPairsBad(z) .
+
+endp)
+
+eof
+
+Maude> (eval genPairs(z) .)
+
+Result: z
+
+Maude> (more .)
+
+Result: p(z,z)
+
+Maude> (more .)
+
+Result: p(p(z,z),p(z,z))
+
+Maude> (more .)
+
+Result: p(p(z,z),z)
+
+Maude> (more .)
+
+Result: p(z,p(z,z))
+
+Maude> (more .)
+
+Result: p(p(p(z,z),p(z,z)),p(p(z,z),p(z,z)))
+
+...
+
+Maude> (eval genPairsBad(z) .)
+
+Result: z
+
+Maude> (more .)
+
+Result: p(z,z)
+
+Maude> (more .)
+
+Result: p(p(z,z),p(z,z))
+
+Maude> (more .)
+
+Result: p(p(p(z,z),p(z,z)),p(p(z,z),p(z,z)))
+
+...
+
+Nota that genPairsBad(z) cannot get p(p(z,z),z) as a result because genPairsBad does not pass its argument P to the recursion call in order to __be able to recombine the old knowledge with the information just infered in genPairsStep__

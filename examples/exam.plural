@@ -1,0 +1,173 @@
+---- load meta.plural
+
+(plural EXAM is
+
+-------------------------------
+
+***(
+Renombrar 'one' a 'any' en meta tb? Parece apropiado?
+)
+
+   any is singular .
+   any(cons(X, Xs)) -> X ? any(Xs) .
+
+   some is plural .
+   some(X) -> nil .
+   some(X) -> cons(X, some(X)) .
+
+   someElems(Xs) -> nil .
+   someElems(cons(X, Xs)) -> cons(X, someElems(Xs)) .
+--------------------------------------------------------------
+
+  not(ff) -> tt .
+
+  fsts(nil) -> nil .
+  fsts(cons(p(X,Y), Xs)) -> cons(X, fsts(Xs)) .
+
+  snds(nil) -> nil .
+  snds(cons(p(X,Y), Xs)) -> cons(Y, fsts(Xs)) .
+
+  add is singular .
+  add(z, X) -> X .
+  add(s(N), M) -> s(add(N, M)) .
+  sum(nil) -> zero .
+  sum(cons(X, Xs)) -> add(X, sum(Xs)) .
+
+***(
+A ver si el mismo truco se puede hacer aunque sean listas en vez de valores indeterministas
+  team1 -> pepe ? lyla ? manolo ? juani .
+  subjects1 -> knows(pepe, t1.1 ? t1.3)
+             ? knows(lyla, t1.2 ? t3)
+             ? knows(manolo, t1.2 ? t3) .
+)
+---  knows(Team, Knowledge, Subject) -> if
+  ---- (eval answer(any(team1), any(subjects1)) .)
+  ---- (eval answer(any(team1), any(cons(knows(lyla, cons(t6, nil)), subjects1))) .)
+  answer(Student, knows(S, Subject)) -> if eq(Student, S) then any(Subject) .
+  team1 -> cons(pepe, cons(lyla, cons(manolo, cons(juani, nil)))) .
+  subjects1 -> cons(knows(pepe, cons(t1.1, cons(t1.3, nil)))
+              , cons(knows(lyla, cons(t1.2, cons(t3, nil)))
+              , cons(knows(manolo, cons(t2.1, cons(t4, nil)))
+              , nil ))) .
+
+  subjects -> t1.1 ? t1.2 ? t2.1 ? t1.3 ? t3.1 ? t3 ? t4 ? t5 ? t6 .
+
+  eq(pepe, pepe) -> tt .
+  eq(lyla, lyla) -> tt .
+  eq(manolo, manolo) -> tt .
+  eq(juani, juani) -> tt .
+  eq(t1.1, t1.1) -> tt .
+  eq(t1.2, t1.2) -> tt .
+  eq(t2.1, t2.1) -> tt .
+  eq(t1.3, t1.3) -> tt .
+  eq(t3.1, t3.1) -> tt .
+  eq(t3, t3) -> tt .
+  eq(t4, t4) -> tt .
+  eq(t6, t6) -> tt .
+  eq(t5, t5) -> tt .
+
+  knowsAll is plural .
+  knowsAll(nil, K) -> tt .
+  knowsAll(cons(K1, Ks), K) -> if eq(K, K1) then knowsAll(Ks, K)  .
+
+  mark is plural .
+  mark(q1, K) -> if knowsAll(cons(t1.1, cons(t1.2, nil)), K) then s(z) .
+  mark(q2.1, K) -> if knowsAll(cons(t2.1, cons(t1.3, nil)), K) then s(z) .
+  mark(q2.2, K) -> if knowsAll(cons(t3.1, cons(t1.3, nil)), K) then s(z) .
+  mark(q3.1, K) -> if knowsAll(cons(t3, nil), K) then s(z) .
+  mark(q3.2, K) -> if knowsAll(cons(t4, nil), K) then s(z) .
+  mark(q4.1, K) -> if knowsAll(cons(t6, nil), K) then s(z) .
+  mark(q4.1, K) -> if knowsAll(cons(t5, nil), K) then s(z) .
+  mark(q5, K) -> s(z) .
+  mark(q6, K) -> z .
+
+  markAll is sp .
+  markAll(nil, K) -> nil .
+---  markAll(cons(Q, Qs), K) -> cons(mark(Q, K) ? z, markAll(Qs, K)) .
+  markAll(cons(Q, Qs), K) -> cons(mark(Q, K), markAll(Qs, K)) .
+
+---  doExam is plural .
+---  doExam(nil, Student, Knowledge) -> nil .
+
+***(
+gana2 [] _ = true
+gana2 (P:Ps) Equipo = gana2 Ps Equipo <== sabe Equipo P
+)
+
+  follows(q1) -> q2.1 .
+  follows(q1) -> q2.2 .
+  follows(q2.1) -> q3.1 .
+  follows(q2.2) -> q3.2 .
+  follows(q3.1) -> q4.1 .
+  follows(q3.1) -> q4.2 .
+  follows(q3.2) -> q4.1 .
+  follows(q3.2) -> q4.2 .
+  follows(q4.1) -> q5 .
+  follows(q4.2) -> q6 .
+  follows(q5) -> end .
+  follows(q6) -> end .
+
+  exams -> examsFrom(q1) .
+  examsFrom(end) -> nil .
+  examsFrom(Q) -> cons(Q, examsFrom(follows(Q))) .
+
+--- Ejemplo de invocacion: passes(exams, team1)
+   passes is singular .
+   passes(Exam, Team) -> p(Exam, passesExam(Exam, any(Team))) .
+   --- (eval examinate(exams, team1, subjects1) .)
+   examinate is singular .
+---   examinate(Exam, Team, Studies) -> p(Exam, sum(markAll(Exam, answer(any(Team), any(Studies))))) .
+   examinate(Exam, Team, Studies) -> p(Exam, sum(markAll(someElems(Exam), answer(any(Team), any(Studies))))) .
+
+--- -> p(Exam, sum(markAll(Exam, any(Team)))) .
+---   passesExam is plural .
+---    passesExam(nil, Team) -> tt .
+---    passesExam(cons(Q, Qs), Team) ->  .
+---   markExam(Exam, Team) -> sum(markAll()) .
+
+
+endp)
+
+***(
+ - Una pregunta exige saber una lista entera de "conocimientos"
+ - En el examen puedes elegir entre varias preguntas: hay q generar todos los examenenes posibles y encontrar alguno que podamos pasar, es decir, que podamos sumar 5 con las preguntas que sabemos. Se podria complicar la cosa haciendo que la eleccion de una pregunta condicionara la eleccion de otras: solo puedo coger una si antes he cogido tal otra
+ - Queremos saber no solo si es posible aprobar sino tambien que preguntas elegir para aprobar
+ - Puede ser interesante que la info venga en listas y la transformemos en valores indeterministas al lanzar el programa
+)
+***(
+data jugador = pepe | lyla | manolo | juani
+type equipo = jugador % funcion indeterminista
+data pregunta = historia | mates | fisica | cine
+
+equipo1 = pepe // lyla // manolo // juani
+preguntas = [historia, mates, fisica, cine]
+
+sabe :: jugador -> pregunta -> bool
+sabe lyla historia = true
+sabe manolo mates = true
+sabe juani fisica = true
+sabe lyla  cine = true
+
+/* Estaba en misc!
+% and perezoso de toda la lista
+andL :: [bool] -> bool
+andL = foldr1 (/\)
+*/
+
+% se supone que debería tener run-time choice
+repeatRun = repeat
+
+/*
+Como no hay run-time choice no sale
+
+Toy> gana preguntas equipo1 == B
+      no
+      Elapsed time: 0 ms.
+*/
+gana :: [pregunta] -> equipo -> bool
+gana Preguntas Equipo = andL (zipWith sabe (repeatRun Equipo) Preguntas)
+
+gana2 :: [pregunta] -> equipo -> bool  % lo mismo pero sin lista
+gana2 [] _ = true
+gana2 (P:Ps) Equipo = gana2 Ps Equipo <== sabe Equipo P
+)

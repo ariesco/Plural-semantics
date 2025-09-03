@@ -1,0 +1,43 @@
+(plural META is
+
+   one is singular .
+   one(cons(X, Xs)) -> X ? one(Xs) .
+
+   some is plural .
+   some(X) -> nil .
+   some(X) -> cons(X, some(X)) .
+
+   neq is singular .
+   neq(0,1) -> tt .
+   neq(1,0) -> tt . 
+
+   notIn is singular .
+   notIn(X, nil) -> tt .
+   notIn(X, cons(Y, Ys)) -> if neq(X,Y) then notIn(X, Ys) .
+   newIns is singular .
+   newIns(X, Xs) -> Xs .
+   newIns(X, Xs) -> if notIn(X,Xs) then cons(X, Xs) .
+
+   someDiff is plural .
+   someDiff(X) -> nil .
+   someDiff(X) -> newIns(X, someDiff(X)) .
+
+   take is singular .
+   take(0, Xs) -> nil .
+   take(s(N), cons(X, Xs)) -> cons(X, take(N, Xs)) .
+
+   repeatSet is plural .
+   repeatSet(X) -> cons(X, repeatSet(X)) .
+
+endp)
+
+***(
+(depth-first .)
+(breadth-first .)
+
+(eval some(0 ? 1) .)
+
+(eval someDiff(0 ? 1) .)
+
+
+)

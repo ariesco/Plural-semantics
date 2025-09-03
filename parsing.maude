@@ -1,0 +1,479 @@
+
+***(%
+\subsection{Parsing}\label{subsec:parsing}
+
+The module \texttt{PLURAL-PARSING} is in charge of transforming the
+data introduced by the user into Maude terms.
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod SEMANTICS-MAP is
+ pr QID .
+
+ sorts SemanticsMap .
+
+ op mtSM : -> SemanticsMap .
+ op _~>_ : Qid Qid -> SemanticsMap .
+ op _;_ : SemanticsMap SemanticsMap -> SemanticsMap [comm assoc id: mtSM] .
+endfm
+
+fmod PLURAL-PARSING is
+  pr SINGULAR-TRANSFORMATION .
+  pr MODULE-CONSTRAINTS .
+  pr PAIR{Module, QidList} * (sort Pair{Module, QidList} to ParsingResult) .
+  pr PAIR{TermList, OpDeclSet} * (sort Pair{TermList, OpDeclSet} to ExpParsing) .
+  pr SEMANTICS-MAP .
+
+  vars Q Q' : Qid .
+  var  TL : TermList .
+  vars T T' T1 T2 : Term .
+  var  Ct : Constant .
+  var  OP : OpDecl .
+  vars ODS ODS' : OpDeclSet .
+  vars RS RS' RS'' SRS SRS' PRS PRS' : RuleSet .
+  var  R : Rule .
+  var  Ch : Char .
+  vars EqS EqS' : EquationSet .
+  var  Eq : Equation .
+  var  Ty : Type .
+  var  TyL : TypeList .
+  var  AtS : AttrSet .
+  var  V : Variable .
+  vars N N' : Nat .
+  var  QIL : QidList .
+  vars PQS PQS' SQS SQS' QS : QidSet .
+  vars S S' : String .
+  vars TB TB' : SemanticsMap .
+  var  IL : ImportList .
+  var  SS : SortSet .
+  var  SSDS : SubsortDeclSet .
+  var  MAS : MembAxSet .
+
+***(%
+\end{verbatim}
+}
+
+The sort \texttt{ModuleParsing}
+
+{\codesize
+\begin{verbatim}
+%)
+
+  sort ModuleParsing .
+  op <_,_,_> : OpDeclSet RuleSet SemanticsMap -> ModuleParsing .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{processModule} receives two terms representing
+respectively the identifier of a module and its set of rules and
+computes an equivalent Maude module. The identifier is obtained with
+\texttt{downQid}, while the rules are processed with the function
+\texttt{processRules}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op processModule : Term Term -> ParsingResult .
+  ceq processModule('token[T], T') = createModule(Q, fillOps(ODS, TB), RS)
+   if Q := downQid(T) /\
+      < ODS, RS, TB > := processRules(T') .
+
+  op processQModule : Term Term -> ParsingResult .
+  ceq processQModule('token[T], T') = createQModule(Q, fillOps(ODS, TB), RS)
+   if Q := downQid(T) /\
+      < ODS, RS, TB > := processRules(T') .
+
+  op downQid : Constant -> Qid .
+  eq downQid(Ct) =
+     qid(substr(string(getName(Ct)), 1, length(string(getName(Ct))))) .
+
+  op fillOps : OpDeclSet SemanticsMap -> OpDeclSet .
+  eq fillOps(none, TB) = none .
+  eq fillOps(op Q : nil -> Ty [AtS] . ODS, TB) = op Q : nil -> Ty [AtS] . fillOps(ODS, TB) .
+  ceq fillOps(op Q : TyL -> Ty [AtS] . ODS, (Q ~> Q') ; TB) =
+                  op Q : TyL -> Ty [AtS createMetadata(Q', size(TyL))] .
+                  fillOps(ODS, TB)
+   if TyL =/= nil .
+  ceq fillOps(op Q : TyL -> Ty [AtS] . ODS, TB) =
+                  op Q : TyL -> Ty [AtS metadata(repeat("s", size(TyL)))] .
+                  fillOps(ODS, TB)
+   if TyL =/= nil [owise] .
+
+  op createMetadata : Qid Nat -> Attr .
+  eq createMetadata('plural, N) = metadata(repeat("p", N)) .
+  eq createMetadata('singular, N) = metadata(repeat("s", N)) .
+  eq createMetadata(Q, N) = metadata(string(Q)) [owise] .
+
+  op repeat : String Nat -> String .
+  eq repeat(S, 0) = "" .
+  eq repeat(S, s(N)) = S + repeat(S, N) .
+
+***(%
+\end{verbatim}
+}
+
+\texttt{processRules} traverses the rules given by the user, and applies
+the function \texttt{processRule} to their lefthand and righthand sides.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op processRules : Term -> ModuleParsing .
+
+  ceq processRules('__[T, T']) = < ODS ODS', RS RS', (TB ; TB') >
+   if < ODS, RS, TB > := processRules(T) /\
+      < ODS', RS', TB' > := processRules(T') .
+  eq processRules('_->_.[T, T']) = processRule(T, T') .
+  eq processRules('_is_.['token[T], 'token[T']]) = < none, none, (downQid(T) ~> downQid(T')) > .
+
+***(%
+\end{verbatim}
+}
+
+Given two terms representing the two sides of a rule, we must
+parse each one as terms of sort \texttt{Exp} with \texttt{processExp},
+declaring their function symbols if necessary.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op processRule : Term Term -> ModuleParsing .
+  ceq processRule(T, T') = < ODS ODS', rl T1 => T2 [none] ., mtSM >
+   if < T1, ODS > := processExp(T) /\
+      < T2, ODS' > := processExp(T') .
+
+***(%
+\end{verbatim}
+}
+
+If the considered term is a token, we check if it is a natural number, a
+variable (it is a uppercase) or a constant (it is a lowercase), returning
+the corresponding value. In the constant case, we also create a new operator
+without arguments and sort \texttt{Exp}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op processExp : Term -> ExpParsing .
+  ceq processExp('token[T]) =
+                   if downNat(Q) :: Nat then < upTerm(downNat(Q)), none >
+                   else if isVar?(Q)
+                        then < createVar(Q), none >
+                        else < createCons(Q), op Q : nil -> 'Exp [none] . >
+                        fi
+                   fi
+   if Q := downQid(T) .
+
+  op downNat : Qid ~> Nat .
+  eq downNat(Q) = trunc(rat(string(Q), 10)) .
+
+  op createVar : Qid -> Variable .
+  eq createVar(Q) = qid(string(Q) + ":Exp") .
+
+  op createCons : Qid -> Constant .
+  eq createCons(Q) = qid(string(Q) + ".Exp") .
+
+***(%
+\end{verbatim}
+}
+
+\noindent Notice the use of \verb"~>" in the declaration of \texttt{downNat},
+indicating that the function is partial. We have to check in the if
+condition that the sort of the function is \texttt{Nat} to know
+whether it is a number or not.
+
+If the term is a function symbol applied to some parameters, we must
+obtain the name of the function and then obtain the parsed parameters
+with \texttt{processExpList}.
+A new operator is created, with so many arguments of type \texttt{Exp}
+as parameters has the function (computed with \texttt{typeList}) and
+with sort \texttt{Exp}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  ceq processExp('_`(_`)['token[T], T']) =
+             < Q[TL], op Q : typeList(size(TL)) -> 'Exp [none] . ODS >
+   if Q := downQid(T) /\
+      < TL, ODS > := processExpList(T') .
+
+  op typeList : NzNat -> TypeList .
+  eq typeList(1) = 'Exp .
+  eq typeList(s(s(N))) = 'Exp typeList(s(N)) .
+
+  op processExpList : Term -> ExpParsing .
+  ceq processExpList('_`,_[T, T']) = < (T1, TL), ODS ODS' >
+   if < T1, ODS > := processExp(T) /\
+      < TL, ODS' > := processExpList(T') .
+
+***(%
+\end{verbatim}
+}
+
+Finally, the special cases where the function symbol is either
+\verb"_?_" or \verb"if_then_" do not need new operators.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  ceq processExp('_?_[T, T']) = < '_?_[T1, T2], ODS ODS' >
+   if < T1, ODS > := processExp(T) /\
+      < T2, ODS' > := processExp(T') .
+
+  ceq processExp('if_then_[T, T']) = < 'if_then_[T1, T2], ODS ODS' >
+   if < T1, ODS > := processExp(T) /\
+      < T2, ODS' > := processExp(T') .
+  eq processExpList(T) = processExp(T) [owise] .
+
+***(%
+\end{verbatim}
+}
+
+Once the operators declarations and the rules have been extracted from
+the input, they are introduced in a module that defines the rest of the
+syntax, as well as the semantics of the operators \verb"_?_" and
+\verb"if_then_":
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op createModule : Qid OpDeclSet RuleSet -> ParsingResult .
+  ceq createModule(Q, ODS, RS) =
+      < newModule(Q, ODS ODS', EqS, RS'),
+        check-constraints(newModule(Q, ODS ODS', EqS, RS), none, none) >
+   if RS' := sST*(pST*(RS, ODS), ODS) /\
+      EqS := ctermEqs(ODS, RS') /\
+      ODS' := extractMatchProjectOps(RS') .
+
+  op createQModule : Qid OpDeclSet RuleSet -> ParsingResult .
+  ceq createQModule(Q, ODS, RS) =
+      < newModule(Q, ODS, EqS, RS),
+        check-constraints(newModule(Q, ODS, EqS, RS), none, none) >
+   if EqS := ctermEqs(ODS, RS) .
+
+  op newModule : Qid OpDeclSet EquationSet RuleSet -> Module .
+  eq newModule(Q, ODS, EqS, RS) = (mod Q is
+          protecting 'EXT-BOOL .
+          protecting 'QID .
+          sorts 'Exp ; 'Subst ; 'SubstList .
+          subsort 'Qid < 'Exp .
+          subsort 'Nat < 'Exp .
+          subsort 'Subst < 'SubstList .
+          op '_=_ : 'Qid 'Exp -> 'Subst [none] .
+          op '_`,_ : 'SubstList 'SubstList -> 'SubstList [comm assoc] .
+          op '_?_ : 'Exp 'Exp -> 'Exp [assoc] .
+          op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+          op 'let_in_ : 'SubstList 'Exp -> 'Exp [none] .
+          op 'tt : nil -> 'Exp [none] .
+          op 'ff : nil -> 'Exp [none] .
+          op 'cterm : 'Exp -> 'Bool [none] .
+          ODS
+          none *** Membership axioms
+          EqS
+          rl 'if_then_['tt.Exp, 'E:Exp] => 'E:Exp [none] .
+          rl '_?_['E1:Exp, 'E2:Exp] => 'E1:Exp [none] .
+          rl '_?_['E1:Exp, 'E2:Exp] => 'E2:Exp [none] .
+          RS
+       endm) .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where the function \texttt{pST} was described in Section \ref{subsec:pST},
+\texttt{check-constraints} was defined in Section{subsec:aux},
+\texttt{ctermEqs} generates the equations that check if a term is a cterm, and
+\texttt{extractMatchProjectOps} creates the operator
+declarations needed by the projection and match functions:
+
+\begin{itemize}
+
+\item The function \texttt{ctermEqs} generates the equations that check if a expression
+is a cterm. We consider cterms the variables and
+the functions that no appear in the root of a lefthand side whose subterms are
+cterms. Thus, we first traverse the rules, removing from the operator set the
+function symbols in the root of the lefthand sides with the function, and defining
+the function \texttt{cterm} for them as \texttt{false}.
+\texttt{removeOp}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op ctermEqs : OpDeclSet RuleSet -> EquationSet .
+
+  eq ctermEqs(ODS, R RS) = ctermEqs(removeOp(R, ODS), RS)
+                           ctermEq(R) .
+
+  op removeOp : Rule OpDeclSet -> OpDeclSet .
+  op removeOp : Term OpDeclSet -> OpDeclSet .
+  eq removeOp(rl T => T' [AtS] ., ODS) = removeOp(T, ODS) .
+  eq removeOp(Q[TL], op Q : TyL -> 'Exp [AtS] . ODS) = ODS .
+  ceq removeOp(Ct, op Q : TyL -> 'Exp [AtS] . ODS) = ODS
+   if Q := getName(Ct) .
+  eq removeOp(T, ODS) = ODS [owise] .
+
+  op ctermEq : Rule -> EquationSet .
+  eq ctermEq(rl Q[TL] => T' [AtS] .) = eq 'cterm[Q[createFreshVars(size(TL))]] = 'false.Bool [none] . .
+  eq ctermEq(rl Ct => T' [AtS] .) = eq 'cterm[Ct] = 'false.Bool [none] . .
+  eq ctermEq(R) = none [owise] .
+
+***(%
+\end{verbatim}
+}
+
+Once we have traversed all the rules, we check the rest of the operators,
+generating an equation for each one.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq ctermEqs(ODS, none) = ctermEqs(ODS) .
+
+  op ctermEqs : OpDeclSet -> EquationSet .
+  ceq ctermEqs(op Q : nil -> 'Exp [AtS] . ODS) = eq 'cterm[Q'] = 'true.Bool [none] .
+                                                 ctermEqs(ODS)
+   if Q' := qid(string(Q) + ".Exp") .
+  ceq ctermEqs(op Q : TyL -> 'Exp [AtS] . ODS) =
+           eq 'cterm[Q[TL]] = ctermEqs*(TL) [none] .
+           ctermEqs(ODS)
+   if TL := createFreshVars(size(TyL)) [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where the function \verb"ctermEqs*" creates a term
+that checks that all the terms of a list are cterms using the
+predefined function \verb"_and-then_"
+and \texttt{size} calculates the size of a list of types.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op ctermEqs* : TermList -> Term .
+  eq ctermEqs*(T) = 'cterm[T] .
+  eq ctermEqs*((T, TL)) = '_and-then_['cterm[T], ctermEqs*(TL)] .
+
+  op size : TypeList -> Nat .
+  eq size(Ty TyL) = s(size(TyL)) .
+  eq size((nil).TypeList) = 0 .
+
+***(%
+\end{verbatim}
+}
+
+When the equations for all the operators have been produced, we give
+the equations for the predefined operators.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq ctermEqs((none).OpDeclSet) =
+                      (eq 'cterm['E:Exp] = 'true.Bool [owise] .
+                       eq 'cterm['N:Nat] = 'true.Bool [none] .
+                       eq 'cterm['ff.Exp] = 'true.Bool [none] .
+                       eq 'cterm['tt.Exp] = 'true.Bool [none] .
+                       eq 'cterm['if_then_['E1:Exp, 'E2:Exp]] = 'false.Bool [none] .
+                       eq 'cterm['_?_['E1:Exp, 'E2:Exp]] = 'false.Bool [none] .) .
+
+***(%
+\end{verbatim}
+}
+
+\item The function \texttt{extractMatchProjectOps} traverses the rules of the module
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op extractMatchProjectOps : RuleSet -> OpDeclSet .
+  eq extractMatchProjectOps(none) = none .
+  eq extractMatchProjectOps(R RS) = extractMatchProjectOp(R)
+                                    extractMatchProjectOps(RS) .
+
+***(%
+\end{verbatim}
+}
+
+and, if the current rule is a projection or a match, uses its name to create a new operator.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op extractMatchProjectOp : Rule -> OpDecl .
+  ceq extractMatchProjectOp(rl Q[TL] => T [AtS] .) = op Q : typeList(size(TL)) -> 'Exp [none] .
+   if projectOrMatch?(Q) .
+  eq extractMatchProjectOp(R) = none [owise] .
+
+  op projectOrMatch? : Qid -> Bool .
+  eq projectOrMatch?(Q) = substr(string(Q), 0, 7) == "project" or-else
+                          substr(string(Q), 0, 5) == "match" .
+
+***(%
+\end{verbatim}
+}
+
+The function \verb"addGen" is in charge of adding the \verb"gen" operators and rules:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op addGen : Module -> Module .
+  ceq addGen(mod Q is IL sorts SS . SSDS ODS MAS EqS RS endm) =
+       mod Q is IL sorts SS . SSDS ODS OP MAS EqS EqS' RS RS' endm
+   if OP := op 'gen : nil -> 'Exp [none] . /\
+      EqS' := (eq 'cterm['gen.Exp] = 'false.Bool [none] .
+               eq 'cterm['s_['V:Exp]] = 'cterm['V:Exp] [none] .) /\
+      RS' := genRls(EqS) .
+
+  op genRls : EquationSet -> RuleSet .
+  eq genRls(eq 'cterm[Q[TL]] = 'false.Bool [AtS] . EqS) = genRls(EqS) .
+  ceq genRls(eq 'cterm[Q[TL]] = T [AtS] . EqS) = rl 'gen.Exp => Q[vars2gen(TL)] [none] .
+                                                 genRls(EqS)
+   if Q =/= '_?_ /\
+      Q =/= 'if_then_ [owise] .
+  eq genRls(eq 'cterm[Ct] = T [AtS] . EqS) = rl 'gen.Exp => Ct [none] .
+                                             genRls(EqS) .
+  eq genRls(EqS) = none [owise] . ***rl 'gen.Exp => '0.Zero [none] .
+***                    rl 'gen.Exp => 's_['gen.Exp] [none] . [owise] .
+
+  op vars2gen : TermList -> TermList .
+  eq vars2gen((T, TL)) = 'gen.Exp, vars2gen(TL) .
+  eq vars2gen(empty) = empty .
+
+  op termWithVariables2Gen : Term -> Term .
+  eq termWithVariables2Gen(Q[TL]) = Q[termWithVariables2Gen*(TL)] .
+  eq termWithVariables2Gen(Ct) = Ct .
+  eq termWithVariables2Gen(V) = 'gen.Exp .
+
+  op termWithVariables2Gen* : TermList -> TermList .
+  eq termWithVariables2Gen*(empty) = empty .
+  eq termWithVariables2Gen*((T, TL)) = termWithVariables2Gen(T), termWithVariables2Gen*(TL) .
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+%)
+
+
+

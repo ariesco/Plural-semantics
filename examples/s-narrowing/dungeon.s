@@ -1,0 +1,34 @@
+(smod DUNGEON is
+
+  guardians -> circe ? calypso ? aeolus ? polyphemus .
+  ask(circe, trojan-gold) -> item(treasure-map) ? sirens-secret .
+  ask(calypso, sirens-secret) -> item(chest-code) .
+  ask(aeolus, item(M)) -> combine(M,M) .
+  ask(polyphemus, combine(treasure-map, chest-code)) -> key .
+
+  discover(M) -> M ? discover(discStep(M) ? M) .
+  discStep(M) -> ask(guardians, M) .
+
+  escape -> open(discover(trojan-gold)) .
+  open(key) -> true .
+ends)
+
+eof
+
+(showTr .)
+
+(depth-first .)
+
+**** (eval discover(trojan-gold) .)
+
+(narrowing depth 6 .)
+
+(narrowing open(discover(X)) .)
+
+(eval-gen open(discover(X)) .)
+
+(narrowing open(X) .)
+
+(cont .)
+
+*** (eval escape .)

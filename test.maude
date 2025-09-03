@@ -1,0 +1,31 @@
+
+(plural TEST is
+  a is psp .
+  
+  a(b(N), b(M), b(T)) -> p(N, N, M, M, T, T) .
+endp)
+
+eof
+
+(plural CLERKS is
+
+  find is p .
+
+  branches -> madrid .
+  branches -> sevilla .
+
+  employees(madrid) -> e(pepe, men, clerk) .
+  employees(madrid) -> e(paco, men, clerk) .
+  employees(sevilla) -> e(lola, women, clerk) .
+  employees(sevilla) -> e(jaime, women, clerk) .
+
+  twoclerks -> find(employees(branches)) .
+
+  find(e(N,S,clerk)) -> p(N,N) .
+endp)
+
+eof
+
+(eval a(3) .)
+
+(eval twoclerks .)

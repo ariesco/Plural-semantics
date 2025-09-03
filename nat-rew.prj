@@ -1,0 +1,3 @@
+load aux-modules.maude
+load multiset.maude
+load standalone-nat-rew.maude

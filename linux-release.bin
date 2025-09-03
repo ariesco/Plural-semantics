@@ -1,0 +1,19 @@
+mkdir kkplural
+cd kkplural
+svn co svn+ssh://juanrh@gpd.sip.ucm.es/svn/plural/code
+cd code/
+chmod u+x put-together
+./put-together 
+cd ..
+mkdir plural-maude-linux
+cp code/plural.maude plural-maude-linux/
+cp ~/sistemas/Maude/maude-linux.tar.gz .
+tar -xvzf maude-linux.tar.gz
+cp maude-linux/* plural-maude-linux/
+echo ./maude.linux plural.maude > plural-maude-linux/plural.bin
+chmod u+x plural-maude-linux/plural.bin
+chmod u+x plural-maude-linux/maude.linux
+tar -cvzf plural-maude-linux.tgz plural-maude-linux/
+cp -f plural-maude-linux.tgz ..
+cd ..
+rm -rf kkplural

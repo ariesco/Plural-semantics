@@ -1,0 +1,26 @@
+(plural FILTERS is
+
+ constant(john) -> tt .
+ 
+ isWoman(mary) -> tt .
+ isWoman(laura) -> tt .
+ filterWomen is plural .
+ filterWomen(P) -> if isWoman(P) then P .
+
+endp)
+	
+eof
+
+Maude> load filters.plural
+Maude> (eval filterWomen(mary ? john) .)
+
+Result: mary
+
+Maude> (more .)
+
+Result: john
+
+Maude> (more .)
+
+No more results.
+

@@ -1,0 +1,1462 @@
+
+***(%
+
+The implementation of this tool exploits the fact that Maude is reflective,
+which allows access to metalevel entities such as specifications
+or computations as usual data. In the following sections we show how to
+apply this feature in order to obtain the program transformation (Sections
+\ref{subsec:aux} to \ref{subsec:pST}) and the user interface (Sections
+\ref{subsec:parsing} and \ref{subsec:io}).
+
+\subsection{Auxiliary modules}\label{subsec:aux}
+
+We describe in this section the auxiliary modules used in the implementation
+of the tool.
+
+The parameterized module \verb"MAYBE{X :: TRIV}"
+adds a default value \texttt{maybe} to the sort
+used in the instantiation of the module.
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod MAYBE{X :: TRIV} is
+ sort Maybe{X} .
+ subsort X$Elt < Maybe{X} .
+ op maybe : -> Maybe{X} .
+endfm
+
+fmod PAIR{X :: TRIV, Y :: TRIV} is
+ sort Pair{X, Y} .
+ 
+ var X : X$Elt .
+ var Y : Y$Elt .
+ 
+ op <_,_> : X$Elt Y$Elt -> Pair{X, Y} .
+ 
+ op first : Pair{X, Y} -> X$Elt .
+ op snd : Pair{X, Y} -> Y$Elt .
+ 
+ eq first(< X, Y >) = X .
+ eq snd(< X, Y >) = Y .
+endfm
+
+***(%
+\end{verbatim}
+}
+
+To instantiate these parameterized modules we have to define views
+fulfilling the theory \texttt{TRIV}. We have defined such views
+for the sorts \texttt{Module}, \texttt{TermList}, \texttt{RuleSet},
+\texttt{OpDeclSet}, \texttt{NatList}, and \texttt{QidList}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+view Module from TRIV to META-MODULE is
+ sort Elt to Module .
+endv
+
+view TermList from TRIV to META-TERM is
+ sort Elt to TermList .
+endv
+
+view EquationSet from TRIV to META-MODULE is
+ sort Elt to EquationSet .
+endv
+
+view RuleSet from TRIV to META-MODULE is
+ sort Elt to RuleSet .
+endv
+
+view OpDeclSet from TRIV to META-MODULE is
+ sort Elt to OpDeclSet .
+endv
+
+view Pos from TRIV to NAT-LIST is
+ sort Elt to NatList .
+endv
+
+view QidList from TRIV to QID-LIST is
+ sort Elt to QidList .
+endv
+
+***(%
+\end{verbatim}
+}
+
+\begin{comment}
+
+The module \texttt{META-OPS} defines auxiliary functions over modules and
+terms.
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod META-OPS is
+ pr META-LEVEL .
+
+ var  Q : Qid .
+ var  TL : TermList .
+ var  T T' : Term .
+ vars V V' : Variable .
+ var  SB : Substitution .
+
+***(%
+\end{verbatim}
+}
+
+The function \verb"getVars" recursively traverses the term
+(using an auxiliary function \verb"getVars*?" for the lists of arguments)
+looking for variables.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op getVars : Term -> TermList .
+ op getVars* : TermList -> TermList .
+ eq getVars(Q[TL]) = getVars*(TL) .
+ eq getVars(V) = V .
+ eq getVars(T) = empty [owise] .
+ eq getVars*((T, TL)) = getVars(T), getVars*(TL) .
+ eq getVars*(empty) = empty .
+ 
+***(%
+\end{verbatim}
+}
+
+When \verb"getVars" is applied to substitutions, it extracts the variables
+only from the terms.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op getVars : Substitution -> TermList .
+ eq getVars((none).Substitution) = empty .
+ eq getVars(V <- T ; SB) = getVars(T), getVars(SB) .
+ 
+ op substitute : Substitution Variable Term -> Substitution .
+ eq substitute(none, V, T) = none .
+ eq substitute(V <- T ; SB, V', T') = V <- substitute(T, V' <- T') ; substitute(SB, V', T') . 
+  
+ op substitute : Term Substitution -> Term .
+ eq substitute(Q[TL], SB) = Q[substitute*(TL, SB)] .
+ eq substitute(T, T <- T' ; SB) = T' .
+ eq substitute(T, SB) = T [owise] .
+  
+ op substitute* : TermList Substitution -> TermList .
+ eq substitute*(empty, SB) = empty .
+ eq substitute*((T, TL), SB) = substitute(T, SB), substitute*(TL, SB) .
+
+  op _contains_ : TermList Term -> Bool .
+  eq empty contains T = false .
+  eq (T, TL) contains T = true .
+  eq (T, TL) contains T' = TL contains T' [owise] . 
+  
+  op size : TermList -> Nat .
+  eq size(empty) = 0 .
+  eq size((T, TL)) = s(size(TL)) .
+
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+The module \texttt{MODULE-CONSTRAINTS} specifies the constraints that a
+module must satisfy to be a valid $\pi$CRWL module.
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod MODULE-CONSTRAINTS is
+ pr META-OPS .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{check-constraints} is in charge of this checking. It returns
+the empty list of quoted identifiers when the constraints are satisfied, and a 
+message explaining the error otherwise.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ *** Main
+ op check-constraints : Module QidSet QidSet -> QidList .
+
+ ceq check-constraints(M, SQS, PQS) = *** check-combination(M, SQS, PQS)
+                            patternLhss(M, Rs) linearLhss(M, Rs) noExtraVariabless(M, Rs)
+                            wrongFunctionSymbolss(M, Rs)
+  if Rs := getRls(M) .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{check-combination} is in charge of checking the errors due
+to the combination of singular and plural semantics.
+
+{\codesize
+\begin{verbatim}
+%)
+  
+ op check-combination : Module QidSet QidSet -> QidList .
+ eq check-combination(M, SQS, PQS) = check-combination1(SQS, PQS)
+                                     check-combination2(getOps(M), SQS ; PQS)
+                                     check-combination3(getRls(M), SQS ; PQS) .
+
+***(%
+\end{verbatim}
+}
+
+This function performs several checks:
+
+\begin{itemize}
+
+\item \texttt{check-combination1} examines if there is a function symbol
+with both singular and plural semantics.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op check-combination1 : QidSet QidSet -> QidList .
+ eq check-combination1(Q ; SQS, Q ; PQS) = '\n 'The 'function '\! Q '\o 'has 'both
+                                           'singular 'and 'plural 'semantics. '\n
+                                           check-combination1(SQS, PQS) .
+ eq check-combination1(SQS, PQS) = nil [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{check-combination2} checks if a semantic declaration is ambiguous.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op check-combination2 : OpDeclSet QidSet -> QidList .
+ ceq check-combination2(op Q : TyL -> Ty [AtS] . op Q : TyL' -> Ty' [AtS'] .
+                        ODS, Q ; QS) = '\n 'Arity 'of 'symbol '\! Q '\o 'needed. '\n
+                                       check-combination2(ODS, QS)
+  if not hasArity(Q) .
+ eq check-combination2(ODS, QS) = nil [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{hasArity} checks if the function symbol contains its arity.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op hasArity : Qid -> Bool .
+ eq hasArity(Q) = find(string(Q), "/", 0) =/= notFound .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{check-combination3} prints an error when the operator does not exist.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op check-combination3 : RuleSet QidSet -> QidList .
+ ceq check-combination3(Rs, Q ; QS) = '\n '\! Q '\o 'is 'not 'a 'function 'symbol. '\n
+                                      check-combination3(Rs, QS)
+  if not usedAtTop(Rs, removeArity(Q)) .
+ eq check-combination3(Rs, QS) = nil [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where the function \texttt{usedAtTop} checks if the function symbol is
+used at top in the program rules and \texttt{removeArity} removes the arity at the
+end of the symbol if needed.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op usedAtTop : RuleSet Qid -> Bool .
+ eq usedAtTop(rl Q[TL] => T [AtS] . Rs, Q) = true .
+ ceq usedAtTop(rl Ct => T [AtS] . Rs, Q) = true
+  if getName(Ct) == Q .
+ eq usedAtTop(Rs, Q) = false [owise] .
+
+ op removeArity : Qid -> Qid .
+ ceq removeArity(Q) = qid(S')
+  if S := string(Q) /\
+     N := find(S, "/", 0) /\
+     S' := substr(S, 0, N) .
+ eq removeArity(Q) = Q [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+
+\begin{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+ *** Check linearity of left-hand sides
+ op linearLhs : Module Rule -> QidList .
+ op linearLhss : Module RuleSet -> QidList .
+ *** Check that every left-hand side is a pattern
+ op patternLhs : Module Rule -> QidList .
+ op patternLhss : Module RuleSet -> QidList .
+ op ctermList : Module TermList -> QidList .
+ *** Check the abstence of extra variables in program rules
+ op noExtraVariables : Module Rule -> QidList .
+ op noExtraVariabless : Module RuleSet -> QidList .
+
+ *** Aux
+ --- red isVar('X:Exp) .  red isVar('f['V@#$0:Exp]) .
+ op metaPrettyPrintRule : Module Rule PrintOptionSet ~> QidList .
+ op metaPrettyPrintRuleSet : Module RuleSet PrintOptionSet ~> QidList .
+ op metaPrettyPrintRulePlural : Module Rule PrintOptionSet ~> QidList .
+ op metaPrettyPrintRuleSetPlural : Module Rule PrintOptionSet ~> QidList .
+ op doMetaPrettyPrintRuleSetPlural : Module Rule PrintOptionSet ~> QidList .
+ *** List processing
+   *** difTL(T, Tl) == filter (/=T) Tl
+   *** red difTL('N:Exp, ('N:Exp,'S:Exp, 'N:Exp)) .
+ op difTL : Term TermList -> TermList .
+   *** nubTL == Haskell nub
+   *** red nubTL(('N:Exp,'S:Exp, 'N:Exp)) .
+ op nubTL : TermList -> TermList .
+   *** minusTL == Haskell list "set" difference (\\) 
+ op minusTL : TermList TermList -> TermList .
+ 
+ op printOptions : -> PrintOptionSet .
+ eq printOptions = mixfix number rat format .
+ 
+ op printPath : Module TermList -> QidList .
+ eq printPath(M, empty) = nil .
+ eq printPath(M, T) = metaPrettyPrint(M, T, printOptions) .
+ eq printPath(M, (T, T', TL)) = metaPrettyPrint(M, T, printOptions) '\n '---> '\n
+                                printPath(M, (T', TL)) .
+ 
+ op isVar : Term -> Bool .
+ eq isVar(V) = true .
+ eq isVar(T) = false [owise] .
+
+ var  M : Module .
+ var  Ops : PrintOptionSet .
+ vars TL TL' TLc : TermList .
+ vars T T' Tc Tc' : Term .
+ var  V : Variable .
+ vars AtS AtS' : AttrSet .
+ var  Rs : RuleSet .
+ var  R : Rule .
+ vars Q Fc : Qid .
+ vars Msg QIL : QidList .
+ var  Ct : Constant .
+ vars TyL TyL' : TypeList .
+ vars Ty Ty' : Type .
+ var  ODS : OpDeclSet .
+ var  Ch : Char .
+ vars SQS PQS QS : QidSet .
+ vars S S' : String .
+ var  N : Nat .
+ var  COND : Condition .
+
+ ceq linearLhs(M, (rl Tc => Tc' [ AtS ].)) = nil
+   if TLc := getVars(Tc)
+      /\ (nubTL(TLc) == TLc) .
+ eq linearLhs(M, R) = 'Non-linear 'left-hand 'side 'in 'rule ' '`( metaPrettyPrintRule(M, R, mixfix) '`) '\n [owise] .
+ eq linearLhss(M, none) = nil .
+ eq linearLhss(M, R Rs) = linearLhs(M, R) linearLhss(M, Rs) .
+
+ eq ctermList(M, empty) = nil .
+ ceq ctermList(M, (T, TL)) = ctermList(M, TL)
+    if getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool .
+ eq ctermList(M, (T, TL)) = '\t 'argument ': metaPrettyPrint(M, T, mixfix) ' 'is 'not 'a 'CTerm '\n ctermList(M, TL) [owise] .
+
+ ceq patternLhs(M, R) = if Msg == nil  
+                           then nil
+                           else 'Left-hand 'side 'of 'rule ' '`( metaPrettyPrintRule(M, R, mixfix) '`) ' 'is 'not 'a 'pattern '\n Msg
+                        fi
+  if (rl (Fc [ TLc ]) => Tc' [ AtS ] .) := R  /\ Msg := ctermList(M, TLc) .
+ eq patternLhs(M, rl Ct => Tc' [ AtS ] .) = nil .
+ ceq patternLhs(M, R) =  'Left-hand 'side 'of 'rule ' '`( metaPrettyPrintRule(M, R, mixfix) '`) ' 'is 'not 'a 'pattern 'but 'a 'variable '\n 
+    if (rl V => Tc' [ AtS ] .) := R .
+ eq patternLhss(M, none) = nil .
+ eq patternLhss(M, R Rs) = patternLhs(M, R) patternLhss(M, Rs) .
+
+ ceq noExtraVariables(M, R) = nil
+   if (rl Tc => Tc' [ AtS ] .) := R /\ TL := getVars(Tc) /\ TL' := getVars(Tc')
+     /\ ((TL' == empty) or (minusTL(TL', TL) == empty)) .
+ eq noExtraVariables(M, R) = 'Extra 'variables 'in 'right-hand 'side 'of 'rule ' '`( metaPrettyPrintRule(M, R, mixfix) '`) '\n [owise] .
+ eq noExtraVariabless(M, none) = nil .
+ eq noExtraVariabless(M, R Rs) = noExtraVariables(M, R) noExtraVariabless(M, Rs) .
+ 
+ op wrongFunctionSymbolss : Module RuleSet -> QidList .
+ op wrongFunctionSymbols : Module Rule -> QidList .
+ op wrongFunctionSymbols : Term -> QidList .
+ op wrongFunctionSymbolss : TermList -> QidList .
+ eq wrongFunctionSymbolss(M, none) = nil .
+ eq wrongFunctionSymbolss(M, R Rs) = wrongFunctionSymbols(M, R) wrongFunctionSymbolss(M, Rs) .
+ ceq wrongFunctionSymbols(M, rl T => T' [AtS] .) = if Msg == nil
+                                                   then nil
+                                                   else ('Wrong 'function 'symbols 'in 'rule '
+                                                        '`( metaPrettyPrintRule(M, rl T => T' [AtS] ., mixfix) '`) ':
+                                                        Msg '\n)
+                                                   fi
+  if Msg := wrongFunctionSymbols(T) wrongFunctionSymbols(T') .
+
+ eq wrongFunctionSymbols(Q[TL]) = if isVar?(Q) then Q else nil fi wrongFunctionSymbolss(TL) .
+ eq wrongFunctionSymbols(T) = nil [owise] .
+ 
+ op isVar? : Qid -> Bool .
+ eq isVar?(Q) = upperCase?(firstLetter(Q)) .
+ eq isVar?(Q) = false [owise] .
+  
+ op firstLetter : Qid -> Char .
+ eq firstLetter(Q) = substr(string(Q), 0, 1) .
+  
+ *** The ascii values of "A" and "Z" are 65 and 90 respectively. 
+ op upperCase? : Char -> Bool .
+ eq upperCase?(Ch) = 65 <= ascii(Ch) and-then ascii(Ch) <= 90 .
+ 
+ eq wrongFunctionSymbolss((T, TL)) = wrongFunctionSymbols(T) wrongFunctionSymbolss(TL) .
+ eq wrongFunctionSymbolss(empty) = nil .
+
+ eq metaPrettyPrintRule(M, (rl Tc => Tc' [ AtS ].), Ops) =  ('rl metaPrettyPrint(M,Tc, Ops) '=> metaPrettyPrint(M,Tc', Ops) '.) .
+ eq metaPrettyPrintRuleSet(M, none, Ops) = nil .
+ eq metaPrettyPrintRuleSet(M, R Rs, Ops) = metaPrettyPrintRule(M, R, Ops) '\n metaPrettyPrintRuleSet(M, Rs, Ops) .
+
+ eq metaPrettyPrintRulePlural(M, (rl Tc => Tc' [ AtS ].), Ops) =  
+                          ('\t add-spaceR(metaPrettyPrint(M,Tc, Ops)) '->
+                          add-spaceL(metaPrettyPrint(M,Tc', Ops) '.)) .
+ eq metaPrettyPrintRuleSetPlural(M, Rs, Ops) = '`( 'plural 'CURRENT 'is '\n doMetaPrettyPrintRuleSetPlural(M, Rs, Ops) 'endp '`) '\n  .
+ eq doMetaPrettyPrintRuleSetPlural(M, none, Ops) = nil .
+ eq doMetaPrettyPrintRuleSetPlural(M, R Rs, Ops) = metaPrettyPrintRulePlural(M, R, Ops) '\n doMetaPrettyPrintRuleSetPlural(M, Rs, Ops) .
+
+ op add-spaceR : QidList -> QidList .
+ eq add-spaceR(QIL '`)) = QIL '`) ' .
+ eq add-spaceR(QIL '`]) = QIL '`] ' .
+ eq add-spaceR(QIL '`}) = QIL '`} ' .
+ eq add-spaceR(QIL) = QIL [owise] .
+ 
+ op add-spaceL : QidList -> QidList .
+ eq add-spaceL('`( QIL) = ' '`( QIL .
+ eq add-spaceL('`[ QIL) = ' '`[ QIL .
+ eq add-spaceL('`{ QIL) = ' '`{ QIL .
+ eq add-spaceL(QIL) = QIL [owise] .
+
+ eq difTL(Tc, empty) = empty .
+ eq difTL(Tc, (Tc, TLc)) = difTL(Tc, TLc).
+ eq difTL(Tc, (Tc', TLc)) = Tc', (difTL(Tc, TLc)) [owise] .
+ eq nubTL(empty) = empty .
+ eq nubTL(Tc) = Tc .
+ eq nubTL((Tc , TLc)) = Tc , difTL(Tc , TLc) .
+ eq minusTL(TLc, empty) = TLc .
+ eq minusTL(TLc, (Tc, TL)) =  minusTL(difTL(Tc, TLc), TL).
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{valid} checks if a term is valid with respect to the
+syntax of a given module.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op valid : Module Term -> Bool .
+  ceq valid(M, T) = true
+   if sameKind(M, leastSort(M, T), 'Nat) .
+  eq valid(M, Q[TL]) = valid(getOps(M), Q[TL]) and-then valid*(M, TL) .
+  eq valid(M, Ct) = valid(getOps(M), Ct) .
+  eq valid(M, T) = false [owise] .
+ 
+***(%
+\end{verbatim}
+}
+
+An auxiliary function \texttt{valid} checks if the function symbol has
+been defined with the appropriate arity, while \texttt{valid*} traverses
+a list of terms checking that each one is valid.
+
+{\codesize
+\begin{verbatim}
+%)
+  
+  op valid : OpDeclSet Term -> Bool .
+  eq valid(op Q : TyL -> Ty [AtS] . ODS, Q[TL]) = if sameSize(TyL, TL)
+                                                  then true
+                                                  else valid(ODS, Q[TL])
+                                                  fi .
+  eq valid(op Q : nil -> Ty [AtS] . ODS, Ct) = if getName(Ct) == Q 
+                                               then true
+                                               else valid(ODS, Ct)
+                                               fi .
+  eq valid(ODS, T) = false [owise] .
+
+  op sameSize : TypeList TermList -> Bool .
+  eq sameSize(nil, empty) = true .
+  eq sameSize(Ty TyL, (T, TL)) = sameSize(TyL, TL) .
+  eq sameSize(TyL, TL) = false [owise] .
+
+  op valid* : Module TermList -> Bool .
+  eq valid*(M, empty) = true .
+  eq valid*(M, (T, TL)) = valid(M, T) and-then valid*(M, TL) .
+  
+  ops equivalent no-equivalent : -> QidList .
+  eq equivalent = '\n 'Both 'alpha 'and 'beta 'plural 'semantics 'supported 'for 'this 'program. '\n .
+  eq no-equivalent = '\n 'Only 'alpha 'semantics 'supported 'for 'this 'program. '\n .
+  
+  op equivalent? : Module -> Bool .
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+%)
+
+  ---- from the book All About Maude
+  ---- by the Maude team
+
+  fmod MULTISET{X :: TRIV} is
+    protecting NAT .
+    pr SET{X} .
+
+    sort Mset{X} .
+    subsort X$Elt < Mset{X} .
+
+    op emptyMS : -> Mset{X} [ctor] .
+    op _._ : Mset{X} Mset{X} -> Mset{X} [ctor assoc comm id: emptyMS] .
+
+    op isEmpty : Mset{X} -> Bool .
+    op sizeOf : Mset{X} -> Nat .
+    
+    op setToMultiset : Set{X} -> Mset{X} .
+    op multisetToSet : Mset{X} -> Set{X} .
+    
+    vars E E' : X$Elt .
+    vars S S' : Mset{X} .
+    vars C : Set{X} .
+ 
+    eq isEmpty(emptyMS) = true .
+    eq isEmpty(E . S) = false .  
+    
+    eq sizeOf(emptyMS) = 0 .
+    eq sizeOf(E . S) = 1 + sizeOf(S) .
+
+    op isIn : X$Elt Mset{X} -> Bool .
+    op mult : X$Elt Mset{X} -> Nat .
+
+    eq isIn(E, E . S) = true .
+    eq isIn(E, S) = false [owise] .
+
+    eq mult(E, E . S) = 1 + mult(E, S) .
+    eq mult(E, S) = 0 [owise] .
+
+    op deleteMS : X$Elt Mset{X} -> Mset{X} .
+    op deleteMS1 : X$Elt Mset{X} -> Mset{X} .
+
+    eq deleteMS(E, E . S) = deleteMS(E, S) .
+    eq deleteMS(E, S) = S [owise] .
+   
+    eq deleteMS1(E, E . S) = S .
+    eq deleteMS1(E, S) = S [owise] .
+
+    op intersectionMS : Mset{X} Mset{X} -> Mset{X} .
+    op difference : Mset{X} Mset{X} -> Mset{X} .
+
+    eq intersectionMS(E . S, E . S') = E . intersectionMS(S, S') .
+    eq intersectionMS(S, S') = emptyMS [owise] .
+
+    eq difference(E . S, E . S') = difference(S, S') .
+    eq difference(S, S') = S [owise] .
+
+    eq setToMultiset(empty) = emptyMS .
+    eq setToMultiset((E , C)) = E . setToMultiset(C) .
+
+    eq multisetToSet(emptyMS) = empty .
+    eq multisetToSet((E . S)) = E , multisetToSet(S) .
+  endfm
+
+***(
+  fmod MULTISET-TEST is
+    protecting MULTISET{Int} .
+  endfm
+
+Maude> red mult(2, 2 2 1 2 3 2) .
+reduce in MULTISET-TEST : mult(2, 2 2 1 2 2 3) .
+rewrites: 9 in 0ms cpu (0ms real) (~ rewrites/second)
+result NzNat: 4
+
+Maude> red intersectionMS(2 2 3 4, 2 2 1 3 3 2) .
+reduce in MULTISET-TEST : intersectionMS(2 2 3 4, 2 2 1 3 2 3) .
+rewrites: 4 in 0ms cpu (0ms real) (~ rewrites/second)
+result Mset{Int}: 2 2 3
+
+Maude> red difference(2 2 3 4, 2 2 1 3 3 2) .
+reduce in MULTISET-TEST : difference(2 2 3 4, 2 2 1 3 2 3) .
+rewrites: 4 in 0ms cpu (0ms real) (~ rewrites/second)
+result NzNat: 4
+)
+
+***(%
+
+\subsection{Matching definitional trees}\label{subsec:mdt}
+
+We describe in this section the implementation of the matching
+definitional trees.
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod LAZY-NAT-LIST is
+ pr NAT-LIST . 
+
+ sort LazyNatList .
+ ****
+ *** LazyNatList: lazy in the second argument of cons
+ ****
+ op [] : ->  LazyNatList [ctor] .
+ op _:_ : Nat LazyNatList ->  LazyNatList [ctor strat (1 0)] .
+ op from : Nat -> LazyNatList .
+ op take : Nat LazyNatList -> NatList .
+ op drop : Nat LazyNatList -> LazyNatList .
+
+ vars I N N' : Nat .
+ vars Xs Ys : LazyNatList .
+
+ eq from(N) =  N : from(s(N)) .
+ eq take(0, Xs) = nil .
+ eq take(s(I), N : Xs) = N take(I, Xs) .
+ eq drop(0, Xs) = Xs .
+ eq drop(s(I), N : Xs) = drop(I, Xs) .
+endfm
+
+view LazyNatList from TRIV to LAZY-NAT-LIST is
+  sort Elt to LazyNatList .
+endv
+
+fmod MDT is
+ pr META-LEVEL .
+
+ sort MDT Forest .
+ subsort MDT < Forest .
+ sort Branch .
+
+ ****
+ *** Matching Definitional Tree constructors
+ ****
+ op <_,_> : NatList Forest -> Branch .
+ op empty : -> Branch .
+ op __ : Branch Branch -> Branch [ctor assoc id: empty] .
+ 
+ op leaf : Term Rule -> MDT .
+ op or : Forest -> MDT .
+ op branch : Term Branch -> MDT .
+ op empty : -> Forest .
+ op __ : Forest Forest -> Forest [ctor assoc id: empty] .
+endfm
+
+view Mdt from TRIV to MDT is
+  sort Elt to MDT .
+endv
+
+view Branch from TRIV to MDT is
+  sort Elt to Branch .
+endv
+
+view Forest from TRIV to MDT is
+  sort Elt to Forest .
+endv
+
+view Term from TRIV to META-TERM is
+   sort Elt to Term .
+endv
+
+fmod MATCHING-TREE is
+ pr META-LEVEL .
+ pr MODULE-CONSTRAINTS .
+ pr SET{Pos} .
+ pr MULTISET{Pos} .
+ pr MAP{Qid, Nat} .
+ pr CONVERSION .
+ pr LAZY-NAT-LIST .
+ pr MDT .
+ pr PAIR{LazyNatList, Branch} .
+ pr PAIR{LazyNatList, Mdt} .
+--- pr PAIR{LazyNatList, Forest} .
+ --- para simular las parejas
+ pr MAP{Forest, LazyNatList} .
+ pr PAIR{RuleSet, RuleSet} .
+ pr MAP{Qid, Mdt} .
+ pr PAIR{LazyNatList, Term} .
+--- Using  
+--- pr SET{Var} .
+--- pr SET{Term} .
+
+ ****
+ *** Term manipulation
+ ****
+ *** returns the signature deduced for a given program
+ op signature : RuleSet -> QidSet .
+ *** returns the set of constructor symbols deduced for a given program
+ op cs : RuleSet -> QidSet .
+ *** returns the set of function symbols deduced for a given program
+ op fs : RuleSet -> QidSet .
+   *** returns the set of elements of the signature that are used in the given term
+   op symbols : Term -> QidSet .
+   op symbolss : TermList -> QidSet .
+ op lhs : Rule -> Term .
+ --- for function symbols and constructor symbols present in lhss only!
+ op arity : RuleSet -> Map{Qid, Nat} .
+ --- set of rules for the given function symbol
+ op rulesOf : Qid RuleSet -> RuleSet . 
+ op positions : Term -> Set{Pos} .
+    op posI : Nat TermList -> Set{Pos} .
+    op mapAppendSet : NatList Set{Pos} -> Set{Pos} .
+ *** Positions of variables
+ op positionsVar : Term -> Set{Pos} .
+    op filtPosVar : Term Set{Pos} -> Set{Pos} .
+ *** Positions of terms rooted by some element of the signature
+ op positionsSigma : Term -> Set{Pos} .
+ *** Positions of constructor rooted terms
+ op positionsCS : QidSet Term -> Set{Pos} .
+    op filtPosCS : QidSet Term Set{Pos} -> Set{Pos} .
+ op at : Term NatList -> Term .
+ op isPrefix : NatList NatList -> Bool .
+ op minimalPos : Set{Pos} -> Set{Pos} .
+ 
+ *** indexing from 0
+ op nth : Nat TermList -> Term .
+ op root : Term -> Qid .
+ op replace : Term NatList Term -> Term .
+ op apSubst : Substitution Term -> Term .
+ op flatApp : LazyNatList Map{Qid, Nat} Qid -> Pair{LazyNatList, Term} .
+
+ ****
+ *** Tree construction
+ ****
+ op treeVar : Nat -> Variable .
+ *** Builds a mapping from any function of the program to its corresponding tree
+ op MDTMap : Module -> Map{Qid, Mdt} .
+   **** Builds the tree for a given function symbol
+ op constructMDTF : Module LazyNatList Map{Qid, Nat} Qid RuleSet -> Pair{LazyNatList, Mdt} .
+   **** Builds the tree for a given call pattern
+ op constructMDT : Module LazyNatList Map{Qid, Nat} Term RuleSet -> Pair{LazyNatList, Mdt} . 
+
+
+ op disagreementPos : Term Term -> Set{Pos} .
+   op filtDisagree : Term Term Set{Pos} -> Set{Pos} .
+ op DPl : QidSet Term Term -> Set{Pos} .
+ op DPR : RuleSet Term -> Mset{Pos} .
+   op DPRAux : QidSet RuleSet Term -> Mset{Pos} .
+ op DPRm : RuleSet Term -> Set{Pos} .
+   op filtDPRm : Set{Pos} Set{Pos} Mset{Pos} RuleSet QidSet Term -> Set{Pos} .
+
+ vars Rs Rs' Ss : RuleSet . 
+ var  R : Rule .
+ vars H F C : Qid .
+ vars CS FS : QidSet .
+ vars TL TL' : TermList .
+ vars T T' Pat Pat' Pat'' Left : Term .
+ var  AtS : AttrSet .
+ var  Ct : Constant .
+ var  V V' : Variable .
+ vars I N N' : Nat .
+ var O P : NatList .
+ var Os Ps : Set{Pos} .
+ var Oss Pss : Mset{Pos} .
+ vars Ar Ar' : Map{Qid, Nat} .
+ vars Xs Ys Xs' Ys' : LazyNatList .
+ var Tm : Map{Qid, Mdt} .
+ vars Tree Tree' : MDT .
+ vars For For' : Forest .
+ vars Br Br' : Branch .
+ vars Sigma Theta : Substitution .
+ var M : Module .
+
+ --- assuming well formed expressions and programs
+ --- red symbols('s['z.Exp]) .
+ eq symbols(V) = none .
+ eq symbols(Ct) = Ct .
+ eq symbols(H [ TL ]) = H ; symbolss(TL) .
+ eq symbolss(empty) = none .
+ eq symbolss((T, TL)) =  symbols(T) ; symbolss(TL) .
+ --- red signature(rl 'f['X:Exp] => 'h['X:Exp] [none] .) .
+ eq signature(none) = none .
+ eq signature((rl T => T' [ AtS ] .) Rs) = symbols(T) ; symbols(T') ; signature(Rs) .
+ ---  red fs((rl 'f['X:Exp] => 'h['X:Exp] [none] .) (rl 'h['z.Exp] => 's['z.Exp] [none] .)) .
+ eq fs(none) = none .
+ eq fs(R Rs) = root(lhs(R)) ; fs(Rs) .
+ --- red cs((rl 'f['X:Exp] => 'h['X:Exp] [none] .) (rl 'h['z.Exp] => 's['z.Exp] [none] .)) .
+ eq cs(Rs) = signature(Rs) \ fs(Rs) .
+ eq lhs(rl T => T' [ AtS ] .) = T .
+
+ --- red arity(( rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .) (rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .) (rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .)) .
+ eq arity(none) = empty .
+--- eq arity(((rl Ct => T' [ AtS ] .) Rs)) = insert(Ct, 0 , arity(Rs)) .
+ eq arity(((rl Ct => T' [ AtS ] .) Rs)) = arityAux(T', insert(Ct, 0 , arity(Rs))) .
+--- eq arity(((rl (F [ TL ]) => T' [ AtS ] .) Rs)) = arityAux(TL, insert(F , lengthTL(TL) , arity(Rs)) ).
+ eq arity(((rl (F [ TL ]) => T' [ AtS ] .) Rs)) = arityAux(T', arityAux(TL, insert(F , lengthTL(TL) , arity(Rs)) )) .
+  op arityAux : TermList Map{Qid, Nat} -> Map{Qid, Nat} .
+  eq arityAux(empty, Ar) = Ar .
+  eq arityAux((T, TL), Ar) = if isVar(T) then arityAux(TL, Ar) 
+                                         else insert(root(T), arityTerm(T), arityAux(TL, arityAux(args(T), Ar)))
+                             fi .
+  op arityTerm : Term -> Nat .
+  eq arityTerm(F [ TL ]) = lengthTL(TL) .
+  eq arityTerm(T) = 0 [owise] .
+  op args : Term -> TermList .
+  eq args(V) = empty .
+  eq args(Ct) = empty .
+  eq args((F [ TL ] )) = TL .
+  op lengthTL : TermList -> Nat .
+  eq lengthTL(empty) = 0 .
+  eq lengthTL((T, TL)) = 1 + lengthTL(TL) .
+ eq rulesOf(F, none) = none .
+ eq rulesOf(F, (rl Ct => T' [ AtS ] .) Rs) = if F == Ct then (rl Ct => T' [ AtS ] .) else none fi rulesOf(F, Rs) .
+ eq rulesOf(F, (rl (H [ TL ]) => T' [ AtS ] .) Rs) = if F == H then (rl (H [ TL ]) => T' [ AtS ] .) else none fi rulesOf(F, Rs) .
+
+  
+ --- red mapAppendSet((0 1 nil), ((2 3) , (3 4), empty)) .
+ eq mapAppendSet(O, empty) = empty .
+ eq mapAppendSet(O, (P, Ps)) = (O P) , mapAppendSet(O, Ps) .
+ --- red positions('g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]]) .
+ eq positions(V) = nil .
+ eq positions(Ct) = nil .
+ eq positions(H [ TL ]) = nil , posI(1, TL) .
+    eq posI(I, empty) = empty .
+    eq posI(I, (T, TL)) = mapAppendSet(I, positions(T)) , posI((I + 1), TL) .
+ --- red positionsVar('g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]]) .
+ eq positionsVar(T) = filtPosVar(T, positions(T)) .
+    eq filtPosVar(T, empty) = empty .
+    eq filtPosVar(T, (P, Ps)) = if isVar(at(T, P)) then P  else empty fi , filtPosVar(T, Ps) .
+ ---  red positionsCS('h ; 'c ; 'f, 'g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]]) .
+ eq positionsCS(CS, T) = filtPosCS(CS, T, positions(T)) .
+    eq filtPosCS(CS, T, empty) = empty .
+    eq filtPosCS(CS, T, (P, Ps)) = if (root(at(T, P)) in CS) then P  else empty fi , filtPosCS(CS, T, Ps) .
+ --- red positionsSigma('g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]]) .
+ eq positionsSigma(T) = positions(T) \ positionsVar(T) .
+
+
+ eq nth(0, (T , TL)) = T . 
+ eq nth(s(I), (T, TL)) = nth(I, TL) . 
+
+ eq isPrefix(nil, P) = true .
+ eq isPrefix((N O), (N P)) = isPrefix(O, P) .
+ eq isPrefix(O,P) = false [owise] .
+
+ eq minimalPos(Os) = minimalPosAux(Os, Os) .
+ op minimalPosAux : Set{Pos} Set{Pos} -> Set{Pos} .
+ eq minimalPosAux(empty, Ps) = empty .
+ eq minimalPosAux((O, Os), Ps) = if minimalIn(O, Ps) then O else empty fi , minimalPosAux(Os, Ps) .
+   op minimalIn : NatList Set{Pos} -> Bool .
+   eq minimalIn(O, empty) = true .
+   eq minimalIn(O, (O, Ps)) = minimalIn(O, Ps) .
+   eq minimalIn(O, (P, Ps)) = if isPrefix(P, O) then false else minimalIn(O, Ps) fi [owise] .
+
+ --- red at('g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]], 2 1) .
+ eq at(T, nil) = T .
+ eq at(H [ TL ], (s(I) P)) = at(nth(I , TL), P) .
+
+ --- red root(at('g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]], 2 1)) .
+ eq root(V) = V .
+ eq root(Ct) = Ct .
+ eq root(H [ TL ]) = H .
+
+ eq replace(T, nil, T') = T' . 
+ eq replace(H [ TL ], s(I) O, T') = H [ replaceTL(TL, I, replace(nth(I, TL), O, T')) ] . 
+   *** indexing from 0
+   op replaceTL : TermList Nat Term -> TermList .
+   eq replaceTL((T, TL), 0, T') = T' , TL .
+   eq replaceTL((T, TL), s(I), T') = T , replaceTL(TL, I, T') .
+
+ --- red apSubst('X:Exp <- 'tt.Exp ; 'Y:Exp <- 'tt.Exp, 'c ['X:Exp]) .
+ eq apSubst(none, T)= T .
+ eq apSubst((V <- T) ; Sigma , V') = if V == V' then T else apSubst(Sigma , V') fi .
+ eq apSubst(Sigma, Ct) = Ct .
+ eq apSubst(Sigma, H [ TL ]) = H [ mapApSubst(Sigma, TL) ] .
+  op mapApSubst : Substitution TermList -> TermList .
+  eq mapApSubst(Sigma, empty) = empty .
+  eq mapApSubst(Sigma, (T, TL)) = apSubst(Sigma, T) , mapApSubst(Sigma, TL) .
+  --- Usar nubTL para simular cjtos
+  --- For a given set of vars returns the part of the substitution which has its domain contained in that
+  --- set and besides has only variables in its range
+  op getRenaming : TermList Substitution -> Substitution .
+  eq getRenaming(empty, Sigma) = none .   
+  eq getRenaming((V, TL), Sigma) = getRenamingVar(V, Sigma) ; getRenaming(TL, Sigma) .
+  op getRenamingVar : Variable Substitution -> Substitution .
+  eq getRenamingVar(V, none) = none .
+  eq getRenamingVar(V, (V <- T) ; Sigma) = if isVar(T) then (V <- T) else none fi .
+  eq getRenamingVar(V, Sigma) = none [owise] .
+
+  --- main: en unifyingRules despues de unificar usar reverseRenaming(getVars(Pat), Sigma,  Left), tb con el lado dcho 
+  op reverseRenamingTotal : Substitution Term -> Term .
+  ceq reverseRenamingTotal(Sigma, T) = apSubst(reverseRenamingAux(Theta), apSubst(Sigma, T))
+    if Theta := getRenamingTotal(Sigma) .
+
+  op getRenamingTotal : Substitution -> Substitution .
+  eq getRenamingTotal(none) = none .
+  eq getRenamingTotal((V <- T) ; Sigma) = if isVar(T) then (V <- T) else none fi ; getRenamingTotal(Sigma) .
+
+  op reverseRenaming : TermList Substitution Term -> Term .
+  ceq reverseRenaming(TL, Sigma, T) = apSubst(reverseRenamingAux(Theta), apSubst(Sigma, T))
+    if Theta := getRenaming(nubTL(TL), Sigma) .
+  op reverseRenamingAux : Substitution -> Substitution .
+  eq reverseRenamingAux(none) = none .
+  eq reverseRenamingAux((V <- V') ; Sigma) = (V' <- V) ; reverseRenamingAux(Sigma) .
+
+ eq flatApp(Xs, Ar, H) = if Ar [H] <= 0 then < Xs, H > else < drop(Ar [H] , Xs) , H [mapTreeVars(take(Ar [ H ], Xs))] > fi .
+
+ eq treeVar(I) =  qid("V#@$T" + string(I, 10) + ":Exp") .
+ op nTreeVars : Nat Nat -> TermList .
+ eq nTreeVars(I, 0) = empty .
+ eq nTreeVars(I, s(N)) = treeVar(I), nTreeVars(s(I), N) .
+ --- red mapTreeVars(take(20, from(0))) .
+ op mapTreeVars : NatList -> TermList .
+ eq mapTreeVars(nil) = empty .
+ eq mapTreeVars((I O)) = treeVar(I) , mapTreeVars(O) .
+
+ ---  red disagreementPos('b['ff.Exp,'X:Exp, 'tt.Exp], 'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp]) .
+--- BIGBUG eq disagreementPos(Left, Pat) = filtDisagree(Left, Pat, intersection(positionsSigma(Left), positionsSigma(Pat))) .
+ eq disagreementPos(Left, Pat) = minimalPos(filtDisagree(Left, Pat, intersection(positionsSigma(Left), positions(Pat)))) .
+--- filtDisagree(Left, Pat, intersection(positionsSigma(Left), positions(Pat))) .
+    eq filtDisagree(Left, Pat, empty) = empty .
+    eq filtDisagree(Left, Pat, (P, Ps)) = if root(at(Left, P)) ==  root(at(Pat, P)) then empty else P fi ,  filtDisagree(Left, Pat, Ps) .
+
+ --- red DPl('tt.Exp ; 'ff.Exp, 'b['tt.Exp,'ff.Exp,'X:Exp], 'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp]) .
+ --- red DPl('tt.Exp ; 'ff.Exp, 'b['ff.Exp,'X:Exp, 'tt.Exp], 'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp]) .
+ --- red DPl('tt.Exp ; 'ff.Exp, 'b['X:Exp, 'tt.Exp, 'ff.Exp], 'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp]) .
+--- BIGBUG  ceq DPl(CS, Left, Pat) = if | intersection(Ps, (positionsCS(CS, Pat) , positionsVar(Pat))) | == 0 then Ps else empty fi
+ceq DPl(CS, Left, Pat) = if | intersection(Ps, positionsCS(CS, Pat)) | == 0 then Ps else empty fi
+     if Ps := disagreementPos(Left, Pat) .
+
+ --- red DPR((rl 'b['X:Exp,'t.Exp,'ff.Exp] => 'tt.Exp [none] .) (rl 'b['ff.Exp,'X:Exp,'tt.Exp] => 'tt.Exp [none] .) (rl 'b['tt.Exp,'ff.Exp,'X:Exp] => 'tt.Exp [none] .) ,  'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp] ) .
+ --- red DPR((rl 'b['X:Exp,'t.Exp,'ff.Exp] => 'tt.Exp [none] .) (rl 'b['ff.Exp,'X:Exp,'tt.Exp] => 'tt.Exp [none] .) (rl 'b['tt.Exp,'ff.Exp,'X:Exp] => 'tt.Exp [none] .) (rl 'f['X:Exp] => 'h['X:Exp] [none] .) (rl 'g['X:Exp,'Y:Exp] => 'g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]] [none] .) (rl 'h['z.Exp] => 's['z.Exp] [none] .),  'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp] ) .
+ eq DPR(Rs, Pat) = DPRAux(cs(Rs), Rs, Pat) .
+ eq DPRAux(CS, none, Pat) = emptyMS .
+ eq DPRAux(CS, (rl Left => T [ AtS ] .) Rs, Pat) = if root(Left) == root(Pat) then setToMultiset(DPl(CS, Left, Pat)) else emptyMS fi . DPRAux(CS, Rs, Pat) .
+
+ --- red DPRm((rl 'b['X:Exp,'t.Exp,'ff.Exp] => 'tt.Exp [none] .) (rl 'b['ff.Exp,'X:Exp,'tt.Exp] => 'tt.Exp [none] .) (rl 'b['tt.Exp,'ff.Exp,'X:Exp] => 'tt.Exp [none] .) (rl 'f['X:Exp] => 'h['X:Exp] [none] .) (rl 'g['X:Exp,'Y:Exp] => 'g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]] [none] .) (rl 'h['z.Exp] => 's['z.Exp] [none] .),  'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp] ) .
+ --- red DPRm( ( rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .) (rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .) (rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .), 'or ['or ['tt.Exp, 'ff.Exp], 'or ['tt.Exp, 'ff.Exp] ]) .
+ ceq DPRm(Rs, Pat) = filtDPRm(Os, Os, Oss, Rs, cs(Rs), Pat)
+   if Oss := DPR(Rs, Pat) /\ Os := multisetToSet(Oss) .
+ eq filtDPRm(empty, Ps, Pss, Rs, CS, Pat) = empty .
+ eq filtDPRm((O , Os), Ps, Pss, Rs, CS, Pat) = if OkDPRm(O, Ps, Pss, Rs, CS, Pat) then O else empty fi , filtDPRm(Os, Ps, Pss, Rs, CS, Pat) .
+    op OkDPRm : NatList Set{Pos} Mset{Pos} RuleSet QidSet Term -> Bool .
+      eq OkDPRm(O, Ps, Pss, none, CS, Pat) = false .
+      eq OkDPRm(O, Ps, Pss, (rl Left => T [ AtS ] .) Rs, CS, Pat) = if O in DPl(CS, Left, Pat) 
+                                                                   then if biggerDPRm(O, Ps, Pss, Left)
+                                                                              then true else OkDPRm(O, Ps, Pss, Rs, CS, Pat) fi
+                                                                   else OkDPRm(O, Ps, Pss, Rs, CS, Pat) fi .
+      op biggerDPRm : NatList Set{Pos} Mset{Pos} Term -> Bool .
+       eq biggerDPRm(O, empty, Pss, Left) = true .
+       eq biggerDPRm(O, (P,  Ps), Pss, Left) = if (mult(O, Pss) >= mult(P, Pss) or isVar(at(Left, P)))
+                                                       then biggerDPRm(O, Ps, Pss, Left)
+                                                    else false
+                                               fi  .
+
+
+**** Construyendo el arbol
+ ceq MDTMap(M) = MDTMapAux(M, from(0), fs(Rs), arity(Rs), Rs, empty)
+   if Rs := getRls(M) .
+ op MDTMapAux : Module LazyNatList QidSet Map{Qid, Nat} RuleSet Map{Qid, Mdt} -> Map{Qid, Mdt} .
+ eq MDTMapAux(M, Xs, none, Ar, Rs, Tm) = Tm .
+ ceq MDTMapAux(M, Xs, (F ; FS), Ar, Rs, Tm) = MDTMapAux(M, Ys, FS, Ar, Rs, insert(F, Tree, Tm))
+   if < Ys, Tree > := constructMDTF(M, Xs, Ar, F, Rs) .
+
+   **** Builds the tree for a given function symbol
+--- eq constructMDTF(M, Xs, Ar, F, Rs) = constructMDT(M, drop(Ar [F] , Xs), F [mapTreeVars(take(Ar [ F ], Xs))], Rs) .
+ ceq constructMDTF(M, Xs, Ar, F, Rs) = constructMDT(M, Ys, Ar, T, rulesOf(F, Rs)) 
+   if < Ys, T > := flatApp(Xs, Ar, F) .
+
+   **** Builds the tree for a given call pattern
+***(
+ ceq constructMDT(M, Xs, Ar, Pat, Rs) = 
+       if Rs :: Rule 
+         then < Xs, leaf(Pat, Rs) >
+         else if rsSize(Ss) > 0
+                then constructMDTb(M, Xs, Ar, Pat, Ss, Rs')
+                else constructMDTc(M, Xs, Ar, Pat, Rs)
+         fi
+       fi 
+  if < Ss, Rs' > := matchingRules(M, Pat, Rs) .
+)
+--- eq constructMDT(M, Xs, Ar, Pat, none) = < Xs, empty > .
+ ceq constructMDT(M, Xs, Ar, Pat, Rs) = 
+    if rsSize(Ss) > 0
+        then constructMDTb(M, Xs, Ar, Pat, Ss, Rs')
+        else constructMDTc(M, Xs, Ar, Pat, Rs)
+    fi
+  if < Ss, Rs' > := matchingRules(M, Pat, Rs) [owise] .
+    op constructMDTb : Module LazyNatList Map{Qid, Nat} Term RuleSet RuleSet -> Pair{LazyNatList, Mdt} . 
+***(
+    ceq constructMDTb(M, Xs, Ar, Pat, Ss, Rs) = 
+            if rsSize(Rs) > 0 then < Ys , or(mapLeaves(Pat, Ss) Tree) >
+                              else < Xs , or(mapLeaves(Pat, Ss)) > fi
+      if < Ys , Tree > := constructMDT(M, Xs, Ar, Pat, Rs) .
+)
+    eq constructMDTb(M, Xs, Ar, Pat, Ss, Rs) = 
+            if rsSize(Rs) > 0 then constructMDTb1(M, Xs, Ar, Pat, Ss, Rs)
+                              else constructMDTb2(Xs, Pat, Ss) 
+            fi [ print "--->constructMDTb, patron " Pat ", matching rules " Ss ", non-mathing rules " Rs ] .
+
+        op constructMDTb1 : Module LazyNatList Map{Qid, Nat} Term RuleSet RuleSet -> Pair{LazyNatList, Mdt} . 
+        ceq constructMDTb1(M, Xs, Ar, Pat, Ss, Rs) =  < Ys , or(mapLeaves(Pat, Ss) Tree) >
+         if < Ys , Tree > := constructMDT(M, Xs, Ar, Pat, Rs) .
+
+        op constructMDTb2 : LazyNatList Term RuleSet -> Pair{LazyNatList, Mdt} . 
+        eq constructMDTb2(Xs, Pat, Ss) = if rsSize(Ss) > 1 then
+                                            < Xs , or(mapLeaves(Pat, Ss)) > 
+                                         else
+                                            < Xs , leaf(Pat, Ss) > fi .
+
+          op mapLeaves : Term RuleSet -> Forest .
+          eq mapLeaves(Pat, none) = empty .
+          eq mapLeaves(Pat, R Rs) =  leaf(Pat, R) mapLeaves(Pat, Rs) .
+        
+
+    op constructMDTc : Module LazyNatList Map{Qid, Nat} Term RuleSet -> Pair{LazyNatList, Mdt} . 
+    ceq constructMDTc(M, Xs, Ar, Pat, Rs) = < Ys, branch(Pat, Br) >
+      if < Ys , Br > := loopConstructMDTc(M, Xs, Ar, DPRm(Rs, Pat), Pat, Rs) [ print "--->constructMDTc, patron " Pat ", reglas " Rs ] .
+
+      op loopConstructMDTc : Module LazyNatList Map{Qid, Nat} Set{Pos} Term RuleSet -> Pair{LazyNatList, Branch} . 
+       eq loopConstructMDTc(M, Xs, Ar, empty, Pat, Rs) = < Xs , empty > .
+       ceq loopConstructMDTc(M, Xs, Ar, (O , Os) , Pat, Rs) = < Xs' , < O , For > Br  >
+---          if (For |->  Ys ) :=  loopPosConstructMDTc(M, Xs, Ar, consAt(Rs, O), O, Pat, Rs)
+                                 --- As we do are one sorted every constructor shares its sort with the others
+          if (For |->  Ys ) :=  loopPosConstructMDTc(M, Xs, Ar, cs(getRls(M)), O, Pat, Rs)
+              /\  < Xs' ,  Br > := loopConstructMDTc(M, Ys, Ar, Os , Pat, Rs) .     
+
+     --- op loopPosConstructMDTc : Module LazyNatList QidSet NatList Term RuleSet -> Pair{LazyNatList, Forest} .
+      op loopPosConstructMDTc : Module LazyNatList Map{Qid, Nat} QidSet NatList Term RuleSet -> Map{Forest, LazyNatList} .  
+      eq loopPosConstructMDTc(M, Xs, Ar, none, O, Pat, Rs) = empty |-> Xs .
+***(
+      ceq loopPosConstructMDTc(M, Xs, Ar, (C ; CS), O, Pat, Rs) = (Tree For) |-> Xs' 
+         if < Ys, T > := flatApp(Xs, Ar, C) 
+         /\ Pat' := replace(Pat, O, T)
+         /\ < Ss, Rs' > := unifyingRules(M, Pat', Rs) 
+         /\ < Ys', Tree > := constructMDT(M, Ys, Ar, Pat', Ss) 
+         /\ (For |-> Xs') := loopPosConstructMDTc(M, Ys', Ar, CS, O, Pat, Rs) .
+)     ceq loopPosConstructMDTc(M, Xs, Ar, (C ; CS), O, Pat, Rs) = 
+            if rsSize(Ss) > 0 then loopPosConstructMDTc1(M, Ys, Ar, CS, O, Pat, Rs, Pat', Ss)
+                              else loopPosConstructMDTc2(M, Ys, Ar, CS, O, Pat, Rs)
+            fi 
+         if < Ys, T > := flatApp(Xs, Ar, C) 
+         /\ Pat' := replace(Pat, O, T)
+         /\ < Ss, Rs' > := unifyingRules(M, Pat', Rs) [ print " loopPosConstructMDTc , patron " Pat' ", constructoras " C " y " CS " y reglas " Rs " unificaron " Ss " y no unificaron " Rs' "\n" ] .
+
+         op loopPosConstructMDTc1 : Module LazyNatList Map{Qid, Nat} QidSet NatList Term RuleSet Term RuleSet -> Map{Forest, LazyNatList} .  
+         ceq loopPosConstructMDTc1(M, Ys, Ar, CS, O, Pat, Rs, Pat', Ss) = (Tree For) |-> Xs' 
+           if < Ys', Tree > := constructMDT(M, Ys, Ar, Pat', Ss) 
+           /\ (For |-> Xs') := loopPosConstructMDTc(M, Ys', Ar, CS, O, Pat, Rs) .
+         op loopPosConstructMDTc2 : Module LazyNatList Map{Qid, Nat} QidSet NatList Term RuleSet -> Map{Forest, LazyNatList} .  
+         ceq loopPosConstructMDTc2(M, Ys, Ar, CS, O, Pat, Rs) = For |-> Xs' 
+           if (For |-> Xs') := loopPosConstructMDTc(M, Ys, Ar, CS, O, Pat, Rs) [ print " loopPosConstructMDTc , quedan " CS ] .
+
+  op rsSize : RuleSet -> Nat .
+  eq rsSize(none) = 0 .
+  eq rsSize((R Rs)) = 1 + rsSize(Rs) .
+  --- ( Left < Pat, ! Left < Pat )
+  op matchingRules : Module Term RuleSet -> Pair{RuleSet, RuleSet} .
+  eq matchingRules(M, Pat, none) = < none, none > .
+  ceq matchingRules(M, Pat, (rl Left => T' [ AtS ] .) Rs) = 
+      if metaMatch(M, Left, Pat, nil, 0) == noMatch
+           then < Rs' , (rl Left => T' [ AtS ] .) Ss >
+           else < (rl Left => T' [ AtS ] .) Rs' , Ss >
+      fi 
+    if < Rs' , Ss > := matchingRules(M, Pat, Rs) .
+
+   --- ( Unifying  , ! Unifying )
+   op unifyingRules : Module Term RuleSet -> Pair{RuleSet, RuleSet} .
+   eq unifyingRules(M, Pat, none) = < none, none > .
+***(
+   ceq unifyingRules(M, Pat, (rl Left => T' [ AtS ] .) Rs) = < (rl apSubst(Sigma, Left) => apSubst(Sigma, T') [ AtS ] .) Rs' , Ss > 
+    if { Sigma , I } := metaUnify(M, Left =? Pat, 0, 0)
+    /\ < Rs' , Ss > := unifyingRules(M, Pat, Rs) .
+)
+---   ceq unifyingRules(M, Pat, (rl Left => T' [ AtS ] .) Rs) = < (rl reverseRenaming(TL, Sigma,  Left) => reverseRenaming(TL, Sigma,  T') [ AtS ] .) Rs' , Ss >
+   ceq unifyingRules(M, Pat, (rl Left => T' [ AtS ] .) Rs) = < (rl reverseRenamingTotal(Sigma,  Left) => reverseRenamingTotal(Sigma,  T') [ AtS ] .) Rs' , Ss >  
+    if { Sigma , I } := metaUnify(M, Left =? Pat, 0, 0)
+---    /\ TL := getVars(Pat)
+    /\ TL := getVars(Left)  
+    /\ < Rs' , Ss > := unifyingRules(M, Pat, Rs) [ print "unificando " Left " y " Pat ] .
+
+   ceq unifyingRules(M, Pat, R Rs) = < Rs' , R Ss >
+    if < Rs' , Ss > := unifyingRules(M, Pat, Rs) [owise].
+
+  op consAt : RuleSet NatList -> QidSet .
+  eq consAt(none, O) = none .
+  ceq consAt((rl Left => T' [ AtS ] .) Rs, O) = if isVar(H) then consAt(Rs, O) else (H ; consAt(Rs, O)) fi
+      if H := root(at(Left, O)) .
+
+endfm
+
+view PosRulePair from TRIV to PAIR{Pos, RuleSet} is
+ sort Elt to Pair{Pos, RuleSet} .
+endv
+
+fmod SEARCH-NODE is
+ pr META-TERM .
+ 
+ sort SearchNode .
+ 
+ op <_,_,_> : Term Nat TermList -> SearchNode .
+endfm
+
+view SearchNode from TRIV to SEARCH-NODE is
+ sort Elt to SearchNode .
+endv
+
+***(%
+\end{verbatim}
+}
+
+The module \texttt{NATURAL-REWRITING} uses the matching definitional trees
+described above to evaluate a term.
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod NATURAL-REWRITING is
+ pr MATCHING-TREE .
+ pr LIST{PosRulePair} .
+ pr LIST{SearchNode} .
+ pr PAIR{Nat, TermList} .
+ 
+ var  M : Module .
+ vars Q Q' : Qid .
+ vars TL TL' TL'' P : TermList .
+ vars F F' : Forest .
+ vars T T' : Term .
+ var  Ct : Constant .
+ var  R : Rule .
+ vars RS RS' : RuleSet .
+ var  AtS : AttrSet .
+ var  N : Nat .
+ vars NL NL' : NatList .
+ var  A : MDT .
+ var  B : Branch .
+ var  MQM : Map{Qid, Mdt} .
+ var  LPRP : List{PosRulePair} .
+ var  LSN : List{SearchNode} .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{natNext} computes, given a module, a term,
+and a forest of matching definitional trees, the list of possible
+results obtained by evaluating the demanded positions of the term.
+In the first case, if the term to be evaluated is a constant, we
+look for the possible rules that can be applied to it with the
+function \texttt{mt} \cite{escobar04}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op natNext : Module Term -> TermList .
+ eq natNext(M, T) = natNext(M, T, MDTMap(M)) .
+
+ op natNext : Module Term Map{Qid, Mdt} -> TermList .
+ ceq natNext(M, Ct, MQM) = applyIn(M, Ct, LPRP)
+  if LPRP := mt(M, Ct, MQM[Ct], MQM) .
+
+***(%
+\end{verbatim}
+}
+
+If the function symbol is a constructor, we look for the first argument
+that is not a cterm\footnote{If the term is a cterm itself, then no
+further evaluation is possible and the case is treated by the \texttt{otherwise}
+equation below.}, apply \texttt{natNext} to it and the subterm is replaced by
+each one of the result list.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ ceq natNext(M, Q[TL], MQM) = TL''
+  if ctor(getRls(M), Q) /\
+     < N, T > := firstNotCterm(M, TL, 1) /\
+     TL' := natNext(M, T, MQM) /\
+     TL'' := replace(Q[TL], N, TL') .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where the auxiliar functions are defined as follows:
+
+\begin{itemize}
+
+\item The function \texttt{ctor} checks that the term does not appear
+as top symbol of a lefthand side.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op ctor : RuleSet Qid -> Bool .
+ eq ctor(rl Q[TL] => T [AtS] . RS, Q) = false .
+ eq ctor(rl Ct => T [AtS] . RS, Ct) = false .
+ eq ctor(RS, Q) = true [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{firstNotCterm} traverses a list of term looking for the first
+one that is a cterm, checked with the (meta)function \texttt{cterm} defined
+in Section \ref{subsec:parsing}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op firstNotCterm : Module TermList Nat -> Pair{Nat, TermList} .
+ eq firstNotCterm(M, empty, N) = < 1, empty > .
+ eq firstNotCterm(M, (T, TL), N) = if getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool
+                                   then firstNotCterm(M, TL, s(N))
+                                   else < N, T >
+                                   fi .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{replace} changes the subterm indicated by the index by each one of
+the terms given list.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op replace : Term Nat TermList -> TermList .
+ op replace* : TermList Nat Term -> TermList .
+
+ eq replace(Q[TL], N, (T, TL')) = Q[replace*(TL, N, T)], replace(Q[TL], N, TL') .
+ eq replace(Q[TL], N, empty) = empty .
+
+ eq replace*(empty, N, T) = empty .
+ eq replace*((T, TL), s(s(N)), T') = T, replace*(TL, s(N), T') .
+ eq replace*((T, TL), 1, T') = T', TL .
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+
+If the term has a function symbol at top we compute the list of
+positions and rules that can be applied by means of the function
+\texttt{mt}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ ceq natNext(M, Q[TL], MQM) = applyIn(M, Q[TL], LPRP)
+  if not ctor(getRls(M), Q) /\
+     LPRP := mt(M, Q[TL], MQM[Q], MQM) .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where \texttt{applyIn} applies the rules given in the list in
+the corresponding positions.
+
+{\codesize
+\begin{verbatim}
+%)
+ 
+ op applyIn : Module Term List{PosRulePair} -> TermList .
+ op applyIn : Module Term NatList Qid -> Term .
+ op applyIn* : Module TermList NatList Qid -> TermList .
+
+ eq applyIn(M, T, < NL, R > LPRP) = applyIn(M, T, NL, getLabel(R)), applyIn(M, T, LPRP) .
+ eq applyIn(M, T, nil) = empty .
+
+ eq applyIn(M, T, nil, Q) = getTerm(metaXapply(M, T, Q, none, 0, unbounded, 0)) .
+ eq applyIn(M, Q[TL], NL, Q') = Q[applyIn*(M, TL, NL, Q')] .
+ 
+ eq applyIn*(M, (T, TL), 1 NL, Q) = applyIn(M, T, NL, Q), TL .
+ eq applyIn*(M, (T, TL), s(s(N)) NL, Q) = T, applyIn*(M, TL, s(N) NL, Q) .
+ 
+ op getLabel : Rule ~> Qid .
+ eq getLabel(rl T => T' [label(Q) AtS] .) = Q .
+
+***(%
+\end{verbatim}
+}
+
+In other case, the term cannot evolve and the functions returns the empty list
+of terms.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ eq natNext(M, T, MQM) = empty [owise] .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{mt} \cite{escobar04} returns a list of pairs with the
+needed positions and the rules that must be applied in each of them. If the
+tree is a single leaf, the rule in this leaf must be applied at top.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op mt : Module Term MDT Map{Qid, Mdt} -> List{PosRulePair} .
+ eq mt(M, T, leaf(T', R), MQM) = < nil, R > .
+
+***(%
+\end{verbatim}
+}
+
+If the tree is an or node, we check all the possible results from the forest
+with the function \texttt{allRulesOr}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ eq mt(M, T, or(F), MQM) = allRulesOr(M, T, F, MQM) .
+
+***(%
+\end{verbatim}
+}
+
+If the tree is a branch node, one of the subterms in the indicated
+positions of the term has a constructor symbol at top, and the pattern
+of at least one of the trees corresponding to this position matches the
+subterm, then we continue with these trees.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ ceq mt(M, T, branch(T', B), MQM) = mt*(M, T, F, MQM)
+  if < NL, F > := firstCtor(M, T, B) .
+ 
+ op mt* : Module Term Forest Map{Qid, Mdt} -> List{PosRulePair} .
+ eq mt*(M, T, empty, MQM) = nil .
+ eq mt*(M, T, A F, MQM) = mt(M, T, A, MQM) mt*(M, T, F, MQM) .
+
+***(%
+\end{verbatim}
+}
+
+In other case, the functions selects the first position indicated by the tree,
+and continues the search with this term, composing the resulting positions with
+the function \texttt{newList}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ ceq mt(M, T, branch(T', < NL, F > B), MQM) = newList(NL, LPRP)
+  if empty == firstCtor(M, T, B) /\
+     LPRP := mt(M, getTerm(T, NL), MQM[root(getTerm(T, NL))], MQM) .
+ eq mt(M, T, A, MQM) = nil [owise] .
+ 
+ op newList : NatList List{PosRulePair} -> List{PosRulePair} .
+ eq newList(NL, nil) = nil .
+ eq newList(NL, < NL', R > LPRP) = < NL NL', R > newList(NL, LPRP) .
+
+***(%
+\end{verbatim}
+}
+
+
+
+{\codesize
+\begin{comment}
+%)
+
+ op allRulesOr : Module Term Forest Map{Qid, Mdt} -> List{PosRulePair} .
+ eq allRulesOr(M, T, empty, MQM) = nil .
+ eq allRulesOr(M, T, A F, MQM) = mt(M, T, A, MQM) allRulesOr(M, T, F, MQM) .
+ 
+ op firstCtor : Module Term Branch -> Branch .
+ eq firstCtor(M, T, empty) = empty .
+ ceq firstCtor(M, T, < NL, F > B) = < NL, F' >
+  if ctor(getRls(M), root(getTerm(T, NL))) /\
+     F' := getMatchs(M, T, F) /\
+     F' =/= empty .
+ eq firstCtor(M, T, < NL, F > B) = firstCtor(M, T, B) [owise] .
+
+ op getMatchs : Module Term Forest -> Forest .
+ eq getMatchs(M, T, empty) = empty .
+ eq getMatchs(M, T, A F) = if metaMatch(M, pattern(A), T, nil, 0) =/= noMatch
+                           then A
+                           else empty
+                           fi
+                           getMatchs(M, T, F) .
+ 
+ op getTerm : Term NatList -> Term .
+ eq getTerm(T, nil) = T .
+ eq getTerm(Q[TL], N NL) = getTerm*(TL, N NL) .
+ 
+ op getTerm* : TermList NatList -> Term .
+ eq getTerm*((T, TL), 1 NL) = getTerm(T, NL) .
+ eq getTerm*((T, TL), s(s(N)) NL) = getTerm*(TL, s(N) NL) .
+
+ op pattern : MDT -> Term .
+ eq pattern(leaf(T, R)) = T .
+ eq pattern(or(A F)) = pattern(A) .
+ eq pattern(branch(T, B)) = T .
+
+***(%
+\end{comment}
+}
+
+Finally, another function \verb"natNext", that only receives a
+module and the term to be reduced, invokes the function \verb"natNext"
+computing first the definitional trees with \verb"MDTMap":
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op natNext : Module Term -> TermList .
+ eq natNext(M, T) = natNext(M, T, MDTMap(M)) .
+
+endfm
+
+***(%
+\end{verbatim}
+}
+%)
+

@@ -1,0 +1,89 @@
+(plural CLERKS is
+
+  branches -> madrid ? vigo ? badajoz .
+  
+  employees(madrid) -> e(pepe, men, clerk) ? e(paco, men, boss) .
+  employees(vigo) -> e(maria, women, clerk) ? e(jaime, men, boss) .
+  employees(badajoz) -> e(laura, women, clerk) ? e(david, men, clerk) .
+  
+  findClerk is singular .
+  findClerk(e(N,G,clerk)) -> N .
+
+  findClerkNG is singular .
+  findClerkNG(e(N,G,clerk)) -> p(N, G) .
+
+  take is singular .
+  take(s(N), cons(X, Xs)) -> cons(X, take(N, Xs)) .
+  take(z, Xs) -> nil .
+  
+  newIns is singular .
+  newIns(X, Xs) -> cons(X, diffL(X, Xs)) .
+  diffL(X, nil) -> nil .
+  diffL(X, cons(Y, Xs)) -> if neq(X, Y) then cons(Y, diffL(X, Xs)) .
+--- (eval take(s(s(z)), vals(pepe ? maria ? laura)) .)
+  vals is plural .
+  vals(X) -> newIns(X, vals(X)) .
+  nVals is sp .
+  nVals(N, E) -> take(N, vals(E)) .
+
+  twoclerks -> find(employees(branches)) .
+  find is plural .
+  find(e(N,S,clerk)) -> p(N,N) .
+
+  nClerks is singular .
+  nClerks(N) -> nVals(N, findClerk(employees(branches))) .
+
+  nClerksNG is singular .
+  nClerksNG(N) -> nVals(N, findClerkNG(employees(branches))) .
+
+  neq(pepe, paco) -> tt .
+  neq(pepe, maria) -> tt .
+  neq(pepe, jaime) -> tt .
+  neq(pepe, laura) -> tt .
+  neq(pepe, david) -> tt .
+  
+  neq(paco, maria) -> tt .
+  neq(paco, jaime) -> tt .
+  neq(paco, laura) -> tt .
+  neq(paco, david) -> tt .
+  neq(paco, pepe) -> tt .
+  
+  neq(maria, paco) -> tt .
+  neq(maria, jaime) -> tt .
+  neq(maria, laura) -> tt .
+  neq(maria, david) -> tt .
+  neq(maria, pepe) -> tt .
+  
+  neq(jaime, paco) -> tt .
+  neq(jaime, maria) -> tt .
+  neq(jaime, laura) -> tt .
+  neq(jaime, david) -> tt .
+  neq(jaime, pepe) -> tt .
+  
+  neq(laura, paco) -> tt .
+  neq(laura, maria) -> tt .
+  neq(laura, jaime) -> tt .
+  neq(laura, david) -> tt .
+  neq(laura, pepe) -> tt .
+  
+  neq(david, paco) -> tt .
+  neq(david, maria) -> tt .
+  neq(david, jaime) -> tt .
+  neq(david, laura) -> tt .
+  neq(david, pepe) -> tt .
+
+  neq(p(X1, Y1), p(X2, Y2)) -> or(neq(X1, X2), neq(Y1, Y2)) . 
+
+  or(tt, X) -> tt .
+  or(ff, X) -> X .
+endp)
+
+eof
+
+--- Repeated elemens and only pairs, not any number of clerks
+(eval twoclerks .)
+
+(eval nClerks(s(s(s(z)))) .)
+
+(eval nClerksNG(s(s(s(z)))) .)
+

@@ -1,0 +1,107 @@
+(plural GRAMMAR is
+
+concat(nil, Xs) -> Xs .
+concat(cons(X,Xs), Ys) -> cons(X, concat(Xs, Ys)) .
+
+take(z, Xs) -> nil .
+take(s(N), cons(X, Xs)) -> cons(X, take(N, Xs)) .
+
+reverse(nil) -> nil .
+reverse(cons(X, Xs)) -> concat(reverse(Xs), cons(X, nil)) .
+
+star is plural .
+star(X) -> nil ? concat(X, star(X)) .
+
+word -> star(letter) .
+letter -> cons(a, nil) ? cons(b, nil) ? cons(c, nil) .  
+
+palindrome -> palAux(word) .
+palAux is singular .
+palAux(W) -> concat(W, reverse(W)).
+palAux(W) -> concat(W, concat(letter, reverse(W))).
+
+
+endp)
+
+eof
+
+Maude> (eval concat(cons(tt, nil), cons(ff, nil)) .)
+
+Result: cons(tt,cons(ff,nil))
+
+Maude> (eval take(s(s(z)), star(cons(z, nil))) .) --- ¡¡star toma listas de caracteres!!
+
+Result: cons(z,cons(z,nil))
+
+Maude> (eval reverse(cons(a, cons(b, nil))) .)
+
+Result: cons(b,cons(a,nil))
+
+Maude> (breadth-first .)
+
+Breadth-first strategy selected.
+
+Maude> (eval palindrome .)
+
+Result: nil
+
+Maude> (more .)
+
+Result: cons(a,nil)
+
+Maude> (more .)
+
+Result: cons(b,nil)
+
+Maude> (more .)
+
+Result: cons(c,nil)
+
+Maude> (more .)
+
+Result: cons(a,cons(a,nil))
+
+Maude> (more .)
+
+Result: cons(b,cons(b,nil))
+
+Maude> (more .)
+
+Result: cons(c,cons(c,nil))
+
+Maude> (more .)
+
+Result: cons(a,cons(a,cons(a,nil)))
+
+Maude> (more .)
+
+Result: cons(a,cons(b,cons(a,nil)))
+
+Maude> (more .)
+
+Result: cons(a,cons(c,cons(a,nil)))
+
+Maude> (more .)
+
+Result: cons(b,cons(a,cons(b,nil)))
+
+Maude> (more .)
+
+Result: cons(c,cons(a,cons(c,nil)))
+
+Maude> (more .)
+
+Result: cons(b,cons(b,cons(b,nil)))
+
+Maude> (more .)
+
+Result: cons(b,cons(c,cons(b,nil)))
+
+Maude> (more .)
+
+Result: cons(c,cons(b,cons(c,nil)))
+
+Maude> (more .)
+
+Result: cons(c,cons(c,cons(c,nil)))
+

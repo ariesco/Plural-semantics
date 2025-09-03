@@ -1,0 +1,572 @@
+
+***(%
+
+The implementation of this tool exploits the fact that Maude is reflective,
+which allows access to metalevel entities such as specifications
+or computations as usual data. In the following sections we show how to
+apply this feature in order to obtain the program transformation (Sections
+\ref{subsec:aux} to \ref{subsec:pST}) and the user interface (Sections
+\ref{subsec:parsing} and \ref{subsec:io}).
+
+\subsection{Auxiliary modules}\label{subsec:aux}
+
+We describe in this section the auxiliary modules used in the implementation
+of the tool.
+
+The parameterized module \verb"MAYBE{X :: TRIV}"
+adds a default value \texttt{maybe} to the sort
+used in the instantiation of the module.
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod MAYBE{X :: TRIV} is
+ sort Maybe{X} .
+ subsort X$Elt < Maybe{X} .
+ op maybe : -> Maybe{X} .
+endfm
+
+fmod PAIR{X :: TRIV, Y :: TRIV} is
+ sort Pair{X, Y} .
+
+ var X : X$Elt .
+ var Y : Y$Elt .
+
+ op <_,_> : X$Elt Y$Elt -> Pair{X, Y} .
+
+ op first : Pair{X, Y} -> X$Elt .
+ op snd : Pair{X, Y} -> Y$Elt .
+
+ eq first(< X, Y >) = X .
+ eq snd(< X, Y >) = Y .
+endfm
+
+***(%
+\end{verbatim}
+}
+
+To instantiate these parameterized modules we have to define views
+fulfilling the theory \texttt{TRIV}. We have defined such views
+for the sorts \texttt{Module}, \texttt{TermList}, \texttt{RuleSet},
+\texttt{OpDeclSet}, \texttt{NatList}, and \texttt{QidList}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+view Module from TRIV to META-MODULE is
+ sort Elt to Module .
+endv
+
+view TermList from TRIV to META-TERM is
+ sort Elt to TermList .
+endv
+
+view EquationSet from TRIV to META-MODULE is
+ sort Elt to EquationSet .
+endv
+
+view RuleSet from TRIV to META-MODULE is
+ sort Elt to RuleSet .
+endv
+
+view OpDeclSet from TRIV to META-MODULE is
+ sort Elt to OpDeclSet .
+endv
+
+view Pos from TRIV to NAT-LIST is
+ sort Elt to NatList .
+endv
+
+view QidList from TRIV to QID-LIST is
+ sort Elt to QidList .
+endv
+
+***(%
+\end{verbatim}
+}
+
+\begin{comment}
+
+The module \texttt{META-OPS} defines auxiliary functions over modules and
+terms.
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod META-OPS is
+ pr META-LEVEL .
+
+ var  Q : Qid .
+ var  TL : TermList .
+ var  T T' : Term .
+ vars V V' : Variable .
+ var  SB : Substitution .
+
+***(%
+\end{verbatim}
+}
+
+The function \verb"getVars" recursively traverses the term
+(using an auxiliary function \verb"getVars*?" for the lists of arguments)
+looking for variables.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op getVars : Term -> TermList .
+ op getVars* : TermList -> TermList .
+ eq getVars(Q[TL]) = getVars*(TL) .
+ eq getVars(V) = V .
+ eq getVars(T) = empty [owise] .
+ eq getVars*((T, TL)) = getVars(T), getVars*(TL) .
+ eq getVars*(empty) = empty .
+
+***(%
+\end{verbatim}
+}
+
+When \verb"getVars" is applied to substitutions, it extracts the variables
+only from the terms.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op getVars : Substitution -> TermList .
+ eq getVars((none).Substitution) = empty .
+ eq getVars(V <- T ; SB) = getVars(T), getVars(SB) .
+
+ op substitute : Substitution Variable Term -> Substitution .
+ eq substitute(none, V, T) = none .
+ eq substitute(V <- T ; SB, V', T') = V <- substitute(T, V' <- T') ; substitute(SB, V', T') .
+
+ op substitute : Term Substitution -> Term .
+ eq substitute(Q[TL], SB) = Q[substitute*(TL, SB)] .
+ eq substitute(T, T <- T' ; SB) = T' .
+ eq substitute(T, SB) = T [owise] .
+
+ op substitute* : TermList Substitution -> TermList .
+ eq substitute*(empty, SB) = empty .
+ eq substitute*((T, TL), SB) = substitute(T, SB), substitute*(TL, SB) .
+
+  op _contains_ : TermList Term -> Bool .
+  eq empty contains T = false .
+  eq (T, TL) contains T = true .
+  eq (T, TL) contains T' = TL contains T' [owise] .
+
+  op size : TermList -> Nat .
+  eq size(empty) = 0 .
+  eq size((T, TL)) = s(size(TL)) .
+
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+The module \texttt{MODULE-CONSTRAINTS} specifies the constraints that a
+module must satisfy to be a valid $\pi$CRWL module.
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod MODULE-CONSTRAINTS is
+ pr META-OPS .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{check-constraints} is in charge of this checking. It returns
+the empty list of quoted identifiers when the constraints are satisfied, and a
+message explaining the error otherwise.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ *** Main
+ op check-constraints : Module QidSet QidSet -> QidList .
+
+ ceq check-constraints(M, SQS, PQS) = *** check-combination(M, SQS, PQS)
+                            patternLhss(M, Rs) linearLhss(M, Rs) noExtraVariabless(M, Rs)
+                            wrongFunctionSymbolss(M, Rs)
+  if Rs := getRls(M) .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{check-combination} is in charge of checking the errors due
+to the combination of singular and plural semantics.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op check-combination : Module QidSet QidSet -> QidList .
+ eq check-combination(M, SQS, PQS) = check-combination1(SQS, PQS)
+                                     check-combination2(getOps(M), SQS ; PQS)
+                                     check-combination3(getRls(M), SQS ; PQS) .
+
+***(%
+\end{verbatim}
+}
+
+This function performs several checks:
+
+\begin{itemize}
+
+\item \texttt{check-combination1} examines if there is a function symbol
+with both singular and plural semantics.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op check-combination1 : QidSet QidSet -> QidList .
+ eq check-combination1(Q ; SQS, Q ; PQS) = '\n 'The 'function '\! Q '\o 'has 'both
+                                           'singular 'and 'plural 'semantics. '\n
+                                           check-combination1(SQS, PQS) .
+ eq check-combination1(SQS, PQS) = nil [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{check-combination2} checks if a semantic declaration is ambiguous.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op check-combination2 : OpDeclSet QidSet -> QidList .
+ ceq check-combination2(op Q : TyL -> Ty [AtS] . op Q : TyL' -> Ty' [AtS'] .
+                        ODS, Q ; QS) = '\n 'Arity 'of 'symbol '\! Q '\o 'needed. '\n
+                                       check-combination2(ODS, QS)
+  if not hasArity(Q) .
+ eq check-combination2(ODS, QS) = nil [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{hasArity} checks if the function symbol contains its arity.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op hasArity : Qid -> Bool .
+ eq hasArity(Q) = find(string(Q), "/", 0) =/= notFound .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{check-combination3} prints an error when the operator does not exist.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op check-combination3 : RuleSet QidSet -> QidList .
+ ceq check-combination3(Rs, Q ; QS) = '\n '\! Q '\o 'is 'not 'a 'function 'symbol. '\n
+                                      check-combination3(Rs, QS)
+  if not usedAtTop(Rs, removeArity(Q)) .
+ eq check-combination3(Rs, QS) = nil [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where the function \texttt{usedAtTop} checks if the function symbol is
+used at top in the program rules and \texttt{removeArity} removes the arity at the
+end of the symbol if needed.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op usedAtTop : RuleSet Qid -> Bool .
+ eq usedAtTop(rl Q[TL] => T [AtS] . Rs, Q) = true .
+ ceq usedAtTop(rl Ct => T [AtS] . Rs, Q) = true
+  if getName(Ct) == Q .
+ eq usedAtTop(Rs, Q) = false [owise] .
+
+ op removeArity : Qid -> Qid .
+ ceq removeArity(Q) = qid(S')
+  if S := string(Q) /\
+     N := find(S, "/", 0) /\
+     S' := substr(S, 0, N) .
+ eq removeArity(Q) = Q [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+
+\begin{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+ *** Check linearity of left-hand sides
+ op linearLhs : Module Rule -> QidList .
+ op linearLhss : Module RuleSet -> QidList .
+ *** Check that every left-hand side is a pattern
+ op patternLhs : Module Rule -> QidList .
+ op patternLhss : Module RuleSet -> QidList .
+ op ctermList : Module TermList -> QidList .
+ *** Check the abstence of extra variables in program rules
+ op noExtraVariables : Module Rule -> QidList .
+ op noExtraVariabless : Module RuleSet -> QidList .
+
+ *** Aux
+ --- red isVar('X:Exp) .  red isVar('f['V@#$0:Exp]) .
+ op metaPrettyPrintRule : Module Rule PrintOptionSet ~> QidList .
+ op metaPrettyPrintRuleSet : Module RuleSet PrintOptionSet ~> QidList .
+ op metaPrettyPrintRulePlural : Module Rule PrintOptionSet ~> QidList .
+ op metaPrettyPrintRuleSetPlural : Module Rule PrintOptionSet ~> QidList .
+ op doMetaPrettyPrintRuleSetPlural : Module Rule PrintOptionSet ~> QidList .
+ *** List processing
+   *** difTL(T, Tl) == filter (/=T) Tl
+   *** red difTL('N:Exp, ('N:Exp,'S:Exp, 'N:Exp)) .
+ op difTL : Term TermList -> TermList .
+   *** nubTL == Haskell nub
+   *** red nubTL(('N:Exp,'S:Exp, 'N:Exp)) .
+ op nubTL : TermList -> TermList .
+   *** minusTL == Haskell list "set" difference (\\)
+ op minusTL : TermList TermList -> TermList .
+
+ op printOptions : -> PrintOptionSet .
+ eq printOptions = mixfix number rat format .
+
+ op printPath : Module TermList -> QidList .
+ eq printPath(M, empty) = nil .
+ eq printPath(M, T) = metaPrettyPrint(M, T, printOptions) .
+ eq printPath(M, (T, T', TL)) = metaPrettyPrint(M, T, printOptions) '\n '---> '\n
+                                printPath(M, (T', TL)) .
+
+ op isVar : Term -> Bool .
+ eq isVar(V) = true .
+ eq isVar(T) = false [owise] .
+
+ var  M : Module .
+ var  Ops : PrintOptionSet .
+ vars TL TL' TLc : TermList .
+ vars T T' Tc Tc' : Term .
+ var  V : Variable .
+ vars AtS AtS' : AttrSet .
+ var  Rs : RuleSet .
+ var  R : Rule .
+ vars Q Fc : Qid .
+ vars Msg QIL : QidList .
+ var  Ct : Constant .
+ vars TyL TyL' : TypeList .
+ vars Ty Ty' : Type .
+ var  ODS : OpDeclSet .
+ var  Ch : Char .
+ vars SQS PQS QS : QidSet .
+ vars S S' : String .
+ var  N : Nat .
+ var  COND : Condition .
+
+ ceq linearLhs(M, (rl Tc => Tc' [ AtS ].)) = nil
+   if TLc := getVars(Tc)
+      /\ (nubTL(TLc) == TLc) .
+ eq linearLhs(M, R) = 'Non-linear 'left-hand 'side 'in 'rule ' '`( metaPrettyPrintRule(M, R, mixfix) '`) '\n [owise] .
+ eq linearLhss(M, none) = nil .
+ eq linearLhss(M, R Rs) = linearLhs(M, R) linearLhss(M, Rs) .
+
+ eq ctermList(M, empty) = nil .
+ ceq ctermList(M, (T, TL)) = ctermList(M, TL)
+    if getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool .
+ eq ctermList(M, (T, TL)) = '\t 'argument ': metaPrettyPrint(M, T, mixfix) ' 'is 'not 'a 'CTerm '\n ctermList(M, TL) [owise] .
+
+ ceq patternLhs(M, R) = if Msg == nil
+                           then nil
+                           else 'Left-hand 'side 'of 'rule ' '`( metaPrettyPrintRule(M, R, mixfix) '`) ' 'is 'not 'a 'pattern '\n Msg
+                        fi
+  if (rl (Fc [ TLc ]) => Tc' [ AtS ] .) := R  /\ Msg := ctermList(M, TLc) .
+ eq patternLhs(M, rl Ct => Tc' [ AtS ] .) = nil .
+ ceq patternLhs(M, R) =  'Left-hand 'side 'of 'rule ' '`( metaPrettyPrintRule(M, R, mixfix) '`) ' 'is 'not 'a 'pattern 'but 'a 'variable '\n
+    if (rl V => Tc' [ AtS ] .) := R .
+ eq patternLhss(M, none) = nil .
+ eq patternLhss(M, R Rs) = patternLhs(M, R) patternLhss(M, Rs) .
+
+ ceq noExtraVariables(M, R) = nil
+   if (rl Tc => Tc' [ AtS ] .) := R /\ TL := getVars(Tc) /\ TL' := getVars(Tc')
+     /\ ((TL' == empty) or (minusTL(TL', TL) == empty)) .
+ eq noExtraVariables(M, R) = 'Extra 'variables 'in 'right-hand 'side 'of 'rule ' '`( metaPrettyPrintRule(M, R, mixfix) '`) '\n [owise] .
+ eq noExtraVariabless(M, none) = nil .
+ eq noExtraVariabless(M, R Rs) = noExtraVariables(M, R) noExtraVariabless(M, Rs) .
+
+ op wrongFunctionSymbolss : Module RuleSet -> QidList .
+ op wrongFunctionSymbols : Module Rule -> QidList .
+ op wrongFunctionSymbols : Term -> QidList .
+ op wrongFunctionSymbolss : TermList -> QidList .
+ eq wrongFunctionSymbolss(M, none) = nil .
+ eq wrongFunctionSymbolss(M, R Rs) = wrongFunctionSymbols(M, R) wrongFunctionSymbolss(M, Rs) .
+ ceq wrongFunctionSymbols(M, rl T => T' [AtS] .) = if Msg == nil
+                                                   then nil
+                                                   else ('Wrong 'function 'symbols 'in 'rule '
+                                                        '`( metaPrettyPrintRule(M, rl T => T' [AtS] ., mixfix) '`) ':
+                                                        Msg '\n)
+                                                   fi
+  if Msg := wrongFunctionSymbols(T) wrongFunctionSymbols(T') .
+
+ eq wrongFunctionSymbols(Q[TL]) = if isVar?(Q) then Q else nil fi wrongFunctionSymbolss(TL) .
+ eq wrongFunctionSymbols(T) = nil [owise] .
+
+ op isVar? : Qid -> Bool .
+ eq isVar?(Q) = upperCase?(firstLetter(Q)) .
+ eq isVar?(Q) = false [owise] .
+
+ op firstLetter : Qid -> Char .
+ eq firstLetter(Q) = substr(string(Q), 0, 1) .
+
+ *** The ascii values of "A" and "Z" are 65 and 90 respectively.
+ op upperCase? : Char -> Bool .
+ eq upperCase?(Ch) = 65 <= ascii(Ch) and-then ascii(Ch) <= 90 .
+
+ eq wrongFunctionSymbolss((T, TL)) = wrongFunctionSymbols(T) wrongFunctionSymbolss(TL) .
+ eq wrongFunctionSymbolss(empty) = nil .
+
+ eq metaPrettyPrintRule(M, (rl Tc => Tc' [ AtS ].), Ops) =  ('rl metaPrettyPrint(M,Tc, Ops) '=> metaPrettyPrint(M,Tc', Ops) '.) .
+ eq metaPrettyPrintRuleSet(M, none, Ops) = nil .
+ eq metaPrettyPrintRuleSet(M, R Rs, Ops) = metaPrettyPrintRule(M, R, Ops) '\n metaPrettyPrintRuleSet(M, Rs, Ops) .
+
+ eq metaPrettyPrintRulePlural(M, (rl Tc => Tc' [ AtS ].), Ops) =
+                          ('\t add-spaceR(metaPrettyPrint(M,Tc, Ops)) '->
+                          add-spaceL(metaPrettyPrint(M,Tc', Ops) '.)) .
+ eq metaPrettyPrintRuleSetPlural(M, Rs, Ops) = '`( 'plural 'CURRENT 'is '\n doMetaPrettyPrintRuleSetPlural(M, Rs, Ops) 'endp '`) '\n  .
+ eq doMetaPrettyPrintRuleSetPlural(M, none, Ops) = nil .
+ eq doMetaPrettyPrintRuleSetPlural(M, R Rs, Ops) = metaPrettyPrintRulePlural(M, R, Ops) '\n doMetaPrettyPrintRuleSetPlural(M, Rs, Ops) .
+
+ op add-spaceR : QidList -> QidList .
+ eq add-spaceR(QIL '`)) = QIL '`) ' .
+ eq add-spaceR(QIL '`]) = QIL '`] ' .
+ eq add-spaceR(QIL '`}) = QIL '`} ' .
+ eq add-spaceR(QIL) = QIL [owise] .
+
+ op add-spaceL : QidList -> QidList .
+ eq add-spaceL('`( QIL) = ' '`( QIL .
+ eq add-spaceL('`[ QIL) = ' '`[ QIL .
+ eq add-spaceL('`{ QIL) = ' '`{ QIL .
+ eq add-spaceL(QIL) = QIL [owise] .
+
+ eq difTL(Tc, empty) = empty .
+ eq difTL(Tc, (Tc, TLc)) = difTL(Tc, TLc).
+ eq difTL(Tc, (Tc', TLc)) = Tc', (difTL(Tc, TLc)) [owise] .
+ eq nubTL(empty) = empty .
+ eq nubTL(Tc) = Tc .
+ eq nubTL((Tc , TLc)) = Tc , difTL(Tc , TLc) .
+ eq minusTL(TLc, empty) = TLc .
+ eq minusTL(TLc, (Tc, TL)) =  minusTL(difTL(Tc, TLc), TL).
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{valid} checks if a term is valid with respect to the
+syntax of a given module.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op valid : Module Term -> Bool .
+  ceq valid(M, T) = true
+   if sameKind(M, leastSort(M, T), 'Nat) .
+  eq valid(M, Q[TL]) = valid(getOps(M), Q[TL]) and-then valid*(M, TL) .
+  eq valid(M, Ct) = valid(getOps(M), Ct) .
+  eq valid(M, T) = false [owise] .
+
+***(%
+\end{verbatim}
+}
+
+An auxiliary function \texttt{valid} checks if the function symbol has
+been defined with the appropriate arity, while \texttt{valid*} traverses
+a list of terms checking that each one is valid.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op valid : OpDeclSet Term -> Bool .
+  eq valid(op Q : TyL -> Ty [AtS] . ODS, Q[TL]) = if sameSize(TyL, TL)
+                                                  then true
+                                                  else valid(ODS, Q[TL])
+                                                  fi .
+  eq valid(op Q : nil -> Ty [AtS] . ODS, Ct) = if getName(Ct) == Q
+                                               then true
+                                               else valid(ODS, Ct)
+                                               fi .
+  eq valid(ODS, T) = false [owise] .
+
+  op sameSize : TypeList TermList -> Bool .
+  eq sameSize(nil, empty) = true .
+  eq sameSize(Ty TyL, (T, TL)) = sameSize(TyL, TL) .
+  eq sameSize(TyL, TL) = false [owise] .
+
+  op valid* : Module TermList -> Bool .
+  eq valid*(M, empty) = true .
+  eq valid*(M, (T, TL)) = valid(M, T) and-then valid*(M, TL) .
+
+  ops equivalent no-equivalent : -> QidList .
+  eq equivalent = '\n 'Both 'alpha 'and 'beta 'plural 'semantics 'supported 'for 'this 'program. '\n .
+  eq no-equivalent = '\n 'Only 'alpha 'semantics 'supported 'for 'this 'program. '\n .
+
+  op equivalent? : Module -> Bool .
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+\begin{comment}
+
+\begin{verbatim}
+%)
+
+fmod TERMSET is
+  protecting META-LEVEL .
+
+  sort TermSet .
+  subsort Term < TermSet .
+  op emptyTermSet : -> TermSet [ctor] .
+  op _|_ : TermSet TermSet -> TermSet
+    [ctor assoc comm id: emptyTermSet format (d n d d)] .
+  eq X:Term | X:Term = X:Term .
+
+  op _in_ : Term TermSet -> Bool .
+  eq T:Term in (T:Term | TS:TermSet) = true .
+  eq T:Term in TS:TermSet = false [owise] .
+
+  op TermSet : TermList -> TermSet .
+  eq TermSet(empty)
+   = emptyTermSet .
+  eq TermSet((T:Term,TL:TermList))
+   = T:Term | TermSet(TL:TermList) .
+
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+%)

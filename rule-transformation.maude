@@ -1,0 +1,695 @@
+
+***(%
+
+\subsection{Module transformation}\label{subsec:pST}
+
+The module \texttt{PLURAL-TRANSFORMATION} is in charge of the transformation
+from CRWL to $\pi$CRWL.
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod PLURAL-TRANSFORMATION is
+  inc META-LEVEL .
+  pr CONVERSION .
+  pr MAP{TermList, TermList} * (sort Map{TermList, TermList} to Table) .
+  pr MODULE-CONSTRAINTS .
+  pr PAIR{EquationSet, RuleSet} .
+
+***(%
+\end{verbatim}
+}
+
+\begin{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+  
+  var  Q : Qid .
+  vars TL TL' Rhos VarsRHS Vars : TermList .
+  vars T T' MatchExp Rho NewRHS : Term .
+  var  Ct : Constant .
+  vars RS RS' RS'' ProjectRules : RuleSet .
+  vars EqS EqS' ProjectEqS : EquationSet .
+  vars R MatchRule : Rule .
+  vars AtS AtS' : AttrSet .
+  var  V : Variable .
+  vars N N' N'' : Nat .
+  var  ProjectTable : Table .
+  var  ODS : OpDeclSet .
+  var  TyL : TypeList .
+  var  Ty : Type .
+  var  S : String .
+  var  M : Module .
+  var  COND : Condition .
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+The function \texttt{pST*} traverses the rules, applying the function
+\texttt{pST} to each one.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op pST* : RuleSet OpDeclSet -> RuleSet .
+  op pST* : RuleSet OpDeclSet Nat -> RuleSet .
+  
+  eq pST*(RS, ODS) = pST*(RS, ODS, 0) .
+
+  eq pST*(R RS, ODS, N) = pST(R, getMetadata(ODS, R), N) pST*(RS, ODS, s(N)) .
+  eq pST*(none, ODS, N) = none .
+  
+  op getMetadata : OpDeclSet Rule -> String .
+  eq getMetadata(op Q : TyL -> Ty [metadata(S) AtS] . ODS, rl Q[TL] => T [AtS'] .) = S .
+  eq getMetadata(ODS, R) = "" [owise] .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{pST} reproduces the program transformation shown
+in \cite{rodH08}. It receives the rule that must be transformed and an index
+to create fresh function names related to this rule.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op pST : Rule String Nat -> RuleSet .
+
+***(%
+\end{verbatim}
+}
+
+If the list of $\rho_i$ associated with the arguments (and computed with
+\texttt{computeRhos}) is empty, then the rule is not transformated.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  ceq pST(rl T => T' [AtS] ., S, N) = rl T => T' [AtS] .
+   if computeRhos(T, S) == empty .
+
+***(%
+\end{verbatim}
+}
+
+If the list of $\rho_i$ is not empty, then we must transform the rule. First,
+the list of $\rho_i$ is computed with the \texttt{computeRhos} function used
+above. The \texttt{match} expression used in the if condition is computed with
+the function \texttt{createMatchExp}, that receives as argument the size of
+list of $\rho_i$ to create the same number of fresh variables. The rule that
+will be applied when this condition holds if defined with the function
+\texttt{createMatchRule}. The function \texttt{computeSubstitutions}
+calculates the project function that substitutes each variable in the
+righthand side, and keeps the result in the table \texttt{ProjectTable}.
+This table is then used to make the substitution and obtain the result
+of the if statement. The rules associated with each projection are obtained
+by means of \texttt{createProjectRules}. Finally, the application of the
+$\tau$ function to the arguments of the lefthand side of the rule is made
+with \texttt{applyTau}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  ceq pST(rl T => T' [AtS] ., S, N) = rl applyTau(T, S) => 'if_then_[MatchExp, NewRHS] [AtS] .
+                                      MatchRule
+                                      ProjectRules
+   if Rhos := computeRhos(T, S) /\
+      Rhos =/= empty /\
+      VarsRHS := getVars(T') /\
+      MatchExp := createMatchExp(size(Rhos), N) /\
+      MatchRule := createMatchRule(Rhos, N) /\
+      ProjectTable := computeSubstitutions(Rhos, VarsRHS, N) /\
+      NewRHS := substitute(T', ProjectTable) /\
+      ProjectRules := createProjectRules(Rhos, VarsRHS, N) .
+      
+***(%
+\end{verbatim}
+}
+
+The auxiliary functions used in this equation are defined as follows:
+
+\begin{itemize}
+
+\item The function \texttt{computeRhos} calculates the
+list of arguments that contain variables but they are not variables
+themselves.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op computeRhos : Term String -> TermList .
+  
+***(%
+\end{verbatim}
+}
+
+To compute this, the function distingishes if the term has arguments or it
+is a constant. If it has arguments, they are traversed by using
+\texttt{computeRhos*}.
+
+{\codesize
+\begin{verbatim}
+%)
+  
+  eq computeRhos(Q[TL], S) = computeRhos*(TL, S) .
+  eq computeRhos(T, S) = empty [owise] .
+
+  op computeRhos* : TermList String -> TermList .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{computeRhos*} also needs an auxiliary function
+\verb"rho?" that checks if the argument corresponds to a $\rho_i$.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq computeRhos*(empty, S) = empty .
+  eq computeRhos*((T, TL), S) = if substr(S, 0, 1) == "p" and-then rho?(T)
+                                then T
+                                else empty 
+                                fi, computeRhos*(TL, substr(S, 1, length(S))) .
+  
+  op rho? : Term -> Bool .
+  
+***(%
+\end{verbatim}
+}
+
+To check it, \verb"rho?" examines that the term contains variables
+different to itself.
+
+{\codesize
+\begin{verbatim}
+%)
+  
+  eq rho?(T) = getVars(T) =/= empty and getVars(T) =/= T .
+
+***(%
+\end{verbatim}
+}
+
+\item We use the function \texttt{createMatchExp} to create the ``if'' condition.
+It receives the number of $\rho_i$ obtained for the current rule and the
+rule index and creates a fresh function name.
+
+{\codesize
+\begin{verbatim}
+%)
+  
+  op createMatchExp : Nat Nat -> Term .
+  ceq createMatchExp(N, N') = Q[createFreshVars(N)]
+   if Q := qid("match" + string(N', 10)) .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where \texttt{createFreshVars} creates the number of
+fresh variables indicated by its parameter. The fresh variables
+have the form \verb"V@#$" and an index, which is not expected to
+be used by the user.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op createFreshVars : Nat -> TermList .
+  eq createFreshVars(0) = empty .
+  eq createFreshVars(s(N)) = createFreshVars(N), createFreshVar(N) .
+  
+  op createFreshVar : Nat -> Variable .
+  eq createFreshVar(N) = qid("V@#$" + string(N, 10) + ":Exp") .
+
+***(%
+\end{verbatim}
+}
+
+\item We use the function \texttt{createMatchRule} to indicate when the match
+condition above holds. The function must hold when the arguments of the match
+condition are the concrete $\rho_i$, so we introduce them in the rule. The
+rule index distinguishes the different match rules.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op createMatchRule : TermList Nat -> Rule .
+  ceq createMatchRule(Rhos, N) = rl Q[Rhos] => 'tt.Exp [label(Q)] .
+   if Q := qid("match" + string(N, 10)) .
+  
+***(%
+\end{verbatim}
+}
+
+\item To obtain the new rules, the variables in each $\rho_i \cap var(r)$ will be
+substituted by the projection functions computed below. In order to make this
+substitution, we compute a table that indicates for each variable the function
+that must be substituted for. The function \texttt{computeSubstitutions}
+accomplish this by traversing the $\rho_i$ with a parameter indicating its index.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op computeSubstitutions : TermList TermList Nat -> Table .
+  eq computeSubstitutions(Rhos, VarsRHS, N) = computeSubstitutions(Rhos, VarsRHS, N, 0) .
+  
+  op computeSubstitutions : TermList TermList Nat Nat -> Table .
+
+***(%
+\end{verbatim}
+}
+
+An auxiliary \texttt{computeSubstitutions} function traverses now the variables
+of $\rho_i \cap var(r)$, using another index for them.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq computeSubstitutions((Rho, Rhos), VarsRHS, N, N') = 
+                  computeSubstitutions(int(getVars(Rho), VarsRHS), N, N', 0),
+                  computeSubstitutions(Rhos, VarsRHS, N, s(N')) .
+  eq computeSubstitutions(empty, VarsRHS, N, N') = empty .
+
+***(%
+\end{verbatim}
+}
+
+The last \texttt{computeSubstitutions} function uses \texttt{projectFunctionName}
+to obtain the name of the projection, and keeps it in the map.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op computeSubstitutions : TermList Nat Nat Nat -> Table .
+  eq computeSubstitutions((V, Vars), N, N', N'') =
+                 V |-> projectFunctionName(N, N', N'')[createFreshVar(N')],
+                 computeSubstitutions(Vars, N, N', s(N'')) .
+  eq computeSubstitutions(empty, N, N', N'') = empty .
+
+***(%
+\end{verbatim}
+}
+
+\item To create the rules for the projection functions we traverse the $\rho_i$
+with the function \texttt{createProjectRules}, creating the corresponding
+function with the rule index and the index $i$.
+
+{\codesize
+\begin{verbatim}
+%)
+  
+  op createProjectRules : TermList TermList Nat -> RuleSet .
+  eq createProjectRules(Rhos, VarsRHS, N) = createProjectRules(Rhos, VarsRHS, N, 0) .
+  
+  op createProjectRules : TermList TermList Nat Nat -> RuleSet .
+
+***(%
+\end{verbatim}
+}
+
+The auxiliary function \texttt{createProjectRules} traverses now the variables
+of $\rho_i$ intersected with the variables of the righthand side (computed with
+the function \texttt{int}) with a function that receives as another parameter
+the index of the variable.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq createProjectRules((Rho, Rhos), VarsRHS, N, N') =
+             createProjectRules(Rho, int(getVars(Rho), VarsRHS), N, N', 0)
+             createProjectRules(Rhos, VarsRHS, N, s(N')) .
+  eq createProjectRules(empty, VarsRHS, N, N') = none .
+
+  op createProjectRules : Term TermList Nat Nat Nat -> RuleSet .
+
+***(%
+\end{verbatim}
+}
+
+For each variable, we create a projection function with the name built
+with \texttt{projectFunctionName}, that receives the three indices (the rule index,
+the index of the $\rho$, and the index of the variable).
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq createProjectRules(Rho, empty, N, N', N'') = none .
+  ceq createProjectRules(Rho, (V, Vars), N, N', N'') = 
+                      rl Q[Rho] => V [label(Q)] .
+                      createProjectRules(Rho, Vars, N, N', s(N''))
+   if Q := projectFunctionName(N, N', N'') .
+
+  op projectFunctionName : Nat Nat Nat -> Qid .
+  eq projectFunctionName(N, N', N'') = 
+      qid("project" + string(N, 10) + "-" + string(N', 10) + "-" + string(N'', 10)) .
+
+***(%
+\end{verbatim}
+}
+
+\item The application of the $\tau$ function is described by \texttt{applyTau}.
+This function changes the arguments that correspond with the $\rho_i$
+for fresh variables, by recursively traversing the term.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op applyTau : Term String -> Term .
+  op applyTau* : TermList String Nat -> TermList .
+
+  eq applyTau(Q[TL], S) = Q[applyTau*(TL, S, 0)] .
+  eq applyTau(T, S) = T [owise] .
+
+  eq applyTau*(empty, S, N) = empty .
+  eq applyTau*((T, TL), S, N) = if substr(S, 0, 1) == "p" and-then rho?(T)
+                                then createFreshVar(N), applyTau*(TL, substr(S, 1, length(S)), s(N))
+                                else T, applyTau*(TL, substr(S, 1, length(S)), N)
+                                fi .
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+
+Finally, we describe the auxiliary functions of the module:
+
+\begin{itemize}
+
+\item The function \texttt{int} calculates the intersection of two lists
+of terms, returning the elements ordered in the same way that the first list.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op int : TermList TermList -> TermList .
+  eq int((T, TL), TL') = if T in TL'
+                         then T, int(TL, TL')
+                         else int(TL, TL')
+                         fi .
+  eq int(empty, TL) = empty .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{in} checks if a term is included in a list.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op _in_ : Term TermList -> Bool .
+  eq T in (T', TL) = if T == T' then true else T in TL fi .
+  eq T in empty = false .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{substitute} recursively substitutes in the term
+using the table given as second argument.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op substitute : Term Table -> Term .
+  op substitute* : TermList Table -> TermList .
+
+  eq substitute(Q[TL], ProjectTable) = Q[substitute*(TL, ProjectTable)] .
+  eq substitute(V, (V |-> T, ProjectTable)) = T .
+  eq substitute(T, ProjectTable) = T [owise] .
+  
+  eq substitute*(empty, ProjectTable) = empty .
+  eq substitute*((T, TL), ProjectTable) = 
+           substitute(T, ProjectTable), substitute*(TL, ProjectTable) .
+
+***(%
+\end{verbatim}
+}
+
+\item \verb"equivalent?" checks, taking into account the plurality map,
+whether the specification is equivalent
+under both $\alpha$ and $\beta$ plural semantics.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq equivalent?(M) = equivalent?(getRls(M), getOps(M)) .
+  
+  op equivalent? : RuleSet OpDeclSet -> Bool .
+  eq equivalent?(none, ODS) = true .
+  ceq equivalent?(R RS, ODS) = ok?(R, S) and equivalent?(RS, ODS)
+   if S := getMetadata(ODS, R) .
+
+  op ok? : Rule String -> Bool .
+  ceq ok?(rl T => T' [AtS] . RS, S) = atMostOne*(Rhos, nubTL(VarsRHS))
+   if Rhos := computeRhos(T, S) /\
+      VarsRHS := getVars(T') .
+  ceq ok?(crl T => T' if COND [AtS] . RS, S) = atMostOne*(Rhos, nubTL(VarsRHS))
+   if Rhos := computeRhos(T, S) /\
+      VarsRHS := getVars(T') .
+  eq ok?(R, S) = true [owise] .
+
+  op atMostOne* : TermList TermList -> Bool .
+  eq atMostOne*(empty, VarsRHS) = true .
+  eq atMostOne*((T, TL), VarsRHS) = atMostOne(T, VarsRHS) and
+                                    atMostOne*(TL, VarsRHS) .
+
+  op atMostOne : Term TermList -> Bool .
+  ceq atMostOne(T, VarsRHS) = | TL | <= 1
+   if Vars := getVars(T) /\
+      TL := Vars /\ VarsRHS .
+  
+  op getTopOp : Rule ~> Qid .
+  eq getTopOp(rl T => T' [AtS] .) = getTopOp(T) .
+  eq getTopOp(crl T => T' if COND [AtS] .) = getTopOp(T) .
+  
+  op getTopOp : Term ~> Qid .
+  eq getTopOp(Q[TL]) = Q .
+  eq getTopOp(Ct) = getName(Ct) .
+  
+  op _/\_ : TermList TermList -> TermList .
+  eq empty /\ TL = empty .
+  eq (T, TL) /\ TL' = if T in TL'
+                      then T
+                      else empty
+                      fi, (TL /\ TL') .
+  
+  op _in_ : Term TermList -> Bool .
+  eq T in empty = false .
+  eq T in (T', TL) = if T == T' then true
+                     else T in TL
+                     fi .
+
+  op |_| : TermList -> Nat .
+  eq | empty | = 0 .
+  eq |(T, TL)| = s(| TL |) .
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+
+The module \verb"SINGULAR-TRANSFORMATION" is in charge of performing the transformation
+for singular semantics:
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod SINGULAR-TRANSFORMATION is
+  pr PLURAL-TRANSFORMATION .
+
+***(%
+\end{verbatim}
+}
+
+\begin{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+  var  R : Rule .
+  var  RS : RuleSet .
+  var  AtS : AttrSet .
+  vars T T' : Term .
+  vars Vars FreshVars TL TL' TL'' Assgn : TermList .
+  var  SB : Substitution .
+  var  Q : Qid .
+  var  ODS : OpDeclSet .
+  var  S : String .
+  var  N : Nat .
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+The function \verb"sST*" traverses the rules in the given rule set, applying \verb"sST"
+to each of them with the metadata (indicating the plurality map) associated to this rule:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op sST* : RuleSet OpDeclSet -> RuleSet .
+  eq sST*(R RS, ODS) = sST(R, getMetadata(ODS, R)) sST*(RS, ODS) .
+  eq sST*(none, ODS) = none .
+
+***(%
+\end{verbatim}
+}
+
+The function \verb"sST" implements the $\mathit{sST}$ function defined in Section ... .
+In this function, the singular variables are collected in \verb"Vars", the fresh
+variables are created with \verb"createFreshVarsLet" and kept in \verb"FreshVars",
+the bindings for the let expression are created with \verb"createAssignment" and
+stored in \verb"Assgn", and
+a substitution mapping old variables to the fresh ones is generated with
+\verb"createSubstitution" and will be used to create the body of the let expression:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op sST : Rule String -> Rule .
+  ceq sST(rl T => T' [AtS] ., S) = rl T => 
+                                'let_in_[Assgn, substitute(T', SB)] [nonexec AtS] .
+   if Vars := deleteReps(int(getSingularVars(T, S), getVars(T'))) /\
+      Vars =/= empty /\
+      FreshVars := createFreshVarsLet(size(Vars)) /\
+      Assgn := createAssignment(FreshVars, Vars) /\
+      SB := createSubstitution(FreshVars, Vars) .
+
+***(%
+\end{verbatim}
+}
+
+In case there are no singular arguments, the rules remains unchanged:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq sST(R, S) = R [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\begin{comment}
+
+The function \verb"deleteReps" removes the repeated terms from a term list:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op deleteReps : TermList -> TermList .
+  eq deleteReps((TL, T, TL', T, TL'')) = deleteReps((TL, T, TL', TL'')) .
+  eq deleteReps(TL) = TL [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op createSubstitution : TermList TermList -> Substitution .
+  eq createSubstitution((T, FreshVars), (T', Vars)) = T' <- T ; 
+                                                      createSubstitution(FreshVars, Vars) .
+  eq createSubstitution(empty, empty) = none .
+  
+  op createAssignment : TermList TermList -> Term .
+  ceq createAssignment(TL, TL') = if size(TL'') == 1
+                                  then TL''
+                                  else '_`,_[TL'']
+                                  fi
+   if TL'' := createAssignmentAux(TL, TL') .
+
+  op createAssignmentAux : TermList TermList -> TermList .
+  eq createAssignmentAux(empty, empty) = empty .
+  eq createAssignmentAux((T, TL), (T', TL')) = '_=_[T, T'], createAssignmentAux(TL, TL') .
+  
+  op getSingularVars : Term String -> TermList .
+  eq getSingularVars(Q[TL], S) = getSingularVars*(TL, S) .
+  eq getSingularVars(T, S) = empty [owise] .
+  
+  op getSingularVars* : TermList String -> TermList .
+  eq getSingularVars*(empty, S) = empty .
+  eq getSingularVars*((T, TL), S) = if substr(S, 0, 1) == "s"
+                                    then getVars(T)
+                                    else empty
+                                    fi, getSingularVars*(TL, substr(S, 1, length(S))) .
+
+***(%
+\end{verbatim}
+}
+
+The function \verb"createFreshVarsLet" creates a list of fresh variables using the
+natural number received as argument as index:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op createFreshVarsLet : Nat -> TermList .
+  eq createFreshVarsLet(0) = empty .
+  eq createFreshVarsLet(s(N)) = createFreshVarLet(N), createFreshVarsLet(N) .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where \verb"createFreshVarLet" creates a fresh variable:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op createFreshVarLet : Nat -> Variable .
+  eq createFreshVarLet(N) = qid("V@#$L" + string(N, 10) + ":Exp") .
+endfm
+
+***(%
+\end{verbatim}
+}
+
+%)
+
+
+

@@ -1,0 +1,87 @@
+(plural USES is
+
+  --- Constructoras
+  cs(z) -> true .
+  cs(s(X)) -> true .
+ 
+  some is plural .
+  some(X) -> nil .
+  some(X) -> cons(X, some(X)) .
+---  one is plural .
+  one is singular .
+  one(cons(X, Xs)) -> X ? one(Xs) .
+
+***(
+ use Fun Gen -> (resultado de Fun Gen, lista de valores de Gen usados) como no tenemos HO implementamos cada instancia de use. Por ejemplo 'use pair'
+)
+  pair is plural .
+  pair(X) -> p(X, X) .
+
+  from(N) -> N ? s(from(N)) .
+  coin is singular .
+  coin -> 0 ? 1 .
+
+***(
+ Implementacion bestia de 'use pair', necesario (breadth-first .)
+ useSome is plural
+ useSome Fun Gen -> useOne Fun (some Gen)
+ useOne is singular
+ useOne Fun Gens -> (Fun (one Gens), Gens)
+)
+   usePairSome is plural .
+   usePairSome(Gen) -> usePairOne(some(Gen)) .
+
+   usePairOne is singular .
+   usePairOne(Gens) -> p(pair(one(Gens)), Gens) .
+  
+   dif is singular .
+   dif(p(0,1)) -> true .
+   useDifPairSome is plural .
+   useDifPairSome(Gen) -> useDifPairOne(some(Gen)) .
+   useDifPairOne is singular .
+   useDifPairOne(Gens) -> p(dif(pair(one(Gens))), Gens) .
+
+--- asda
+   neq is singular .
+   neq(0,1) -> tt .
+   neq(1,0) -> tt . 
+
+   notIn is singular .
+   notIn(X, nil) -> tt .
+   notIn(X, cons(Y, Ys)) -> if neq(X,Y) then notIn(X, Ys) .
+   newIns is singular .
+   newIns(X, Xs) -> Xs .
+   newIns(X, Xs) -> if notIn(X,Xs) then cons(X, Xs) .
+
+   vals is plural .
+---   vals(X) -> cons(X, nil) .
+   vals(X) -> nil .
+   vals(X) -> newIns(X, vals(X)) .
+   
+   usePairVals is plural .
+   usePairVals(Gen) -> usePairOne(vals(Gen)) .
+
+endp)
+
+(breadth-first .)
+
+***(
+ (eval usePairSome(coin) .)
+
+Maude>  (eval useDifPairSome(coin) .)
+
+Result: p(true,cons(0,cons(1,nil)))
+
+Maude> (more .)
+
+Result: p(true,cons(1,cons(0,nil)))
+
+Maude> (more .)
+
+Result: p(true,cons(0,cons(1,cons(0,nil))))
+
+Maude> (more .)
+
+Result: p(true,cons(0,cons(1,cons(1,nil))))
+
+)

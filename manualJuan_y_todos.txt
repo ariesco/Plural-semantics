@@ -1,0 +1,23 @@
+Manual:
+ * El script `put-together` junta todos los fuentes Maude en el archivo `plural.maude`, que es el que hay que distribuir. El archivo `plural.prj` hace los loads de cada uno de estos archivos, así que es equivalente hacer `maude-linux plural.maude` que ejecutar Maude y luego el comando `in plural.prj`.
+ * Para hacer el release de linux:
+{{{
+$ svn co svn+ssh://juanrh@gpd.sip.ucm.es/svn/plural/code
+$ cd code/
+$ chmod u+x put-together
+$ ./put-together 
+$ cd ..
+$ mkdir plural-maude-linux
+$ cp code/plural.maude plural-maude-linux/
+$ wget http://maude.cs.uiuc.edu/download/current/maude-linux.tgz
+$ tar -xvzf maude-linux.tgz
+$ cp maude-linux/* plural-maude-linux/
+$ echo ./maude.linux plural.maude > plural-maude-linux/plural.bin
+$ chmod u+x plural-maude-linux/plural.bin
+$ chmod u+x plural-maude-linux/maude.linux
+$ tar -cvzf plural-maude-linux.tgz plural-maude-linux/
+}}}
+
+TODO: 
+ * Añadir un punto al final de las reglas de los programas plural, al estilo Maude, para que el parser no se lie
+ * Añadir la opción de evaluación con cota a la profundidad, `(eval [prof=n] <exp> .)`

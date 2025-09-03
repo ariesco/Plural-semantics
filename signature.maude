@@ -1,0 +1,317 @@
+
+***(%
+
+\subsection{Signature}\label{subsec:signature}
+
+We describe in this section the signature of the modules introduced by the user.
+This signature is defined in the \verb"PLURAL-SIGN" module:
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod PLURAL-SIGN is
+
+***(%
+\end{verbatim}
+}
+
+The sort \verb"@Input@" defines all the possible data that can be introduced
+by the user, being \verb"@Command@" a particular case of this input:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  sorts @Input@ @Command@ .
+  subsort @Command@ < @Input@ .
+
+***(%
+\end{verbatim}
+}
+
+We define now the components of the modules introduced by the user. \verb"@Token@"
+symbolizes any possible quoted identifier, that is a concrete case of expression.
+The syntax \verb"_,_" builds lists of expressions, and we obtain functions with
+parameters by using brackets (syntax \verb"_`(_`)"). The arrow \verb"->" constructs
+rules, that are put together by juxtaposition (syntax \verb"__"):
+
+{\codesize
+\begin{verbatim}
+%)
+
+  sorts @Token@ Exp ExpList Rule Decl StmntList Module .
+  subsort @Token@ < Exp .
+  subsort Exp < ExpList .
+  subsort Rule < StmntList .
+  subsort Decl < StmntList .
+  subsort Module < @Input@ .
+
+  op _,_ : ExpList ExpList -> ExpList [assoc prec 25] .
+  op _`(_`) : @Token@ ExpList -> Exp [prec 10] .
+
+  op _->_. : Exp Exp -> Rule [prec 30] .
+  op _is_. : @Token@ @Token@ -> Decl [prec 30] .
+
+  op __ : StmntList StmntList -> StmntList [comm assoc prec 35] .
+
+***(%
+\end{verbatim}
+}
+
+The predefined functions \verb"_?_" and \verb"if_then_" are also defined
+here:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op _?_ : Exp Exp -> Exp [assoc comm prec 15] .
+  op if_then_ : Exp Exp -> Exp [prec 20] .
+
+***(%
+\end{verbatim}
+}
+
+We show now the syntax of the commands:
+
+\begin{itemize}
+
+\item Modules are introduced with syntax \verb"plural_is_endp", that expects
+a token (the module identifier) and a list of rules:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op plural_is_endp : @Token@ StmntList -> Module .
+
+***(%
+\end{verbatim}
+}
+
+\item Modules for q-narrowing are introduced with the following syntax:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op smod_is_ends : @Token@ StmntList -> Module .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \texttt{eval} evaluates the expression to obtain a value:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op eval_. : Exp -> @Command@ .
+  op eval`[depth=_`]_. : @Token@ Exp -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \texttt{eval-gen} evaluates an expression with variables by using generators:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op eval-gen_. : Exp -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \texttt{more} demands a new value from the last
+evaluated expression:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op more`. : -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \texttt{cont} looks for more solutions in the narrowing process:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op cont`. : -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \texttt{next} looks for more solutions when using generators:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op next`. : -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The commands \texttt{path on} and \texttt{path off} activate and deactivate
+the path:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op path`on`. : -> @Command@ .
+  op path`off`. : -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \texttt{show path} prints the path to the last solution:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op show`path`. : -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \texttt{reboot} to restarts the tool:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op reboot`. : -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The commands \texttt{depth-first} and \texttt{width-first} allow to
+change the search strategy:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op depth-first`. : -> @Command@ .
+  op width-first`. : -> @Command@ .
+  op breadth-first`. : -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \verb"=?" is used to introduce unification problems:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op _=?_. : Exp Exp -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \verb"narrowing" is used to compute the cterms reachable by using
+narrowing:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op narrowing_. : Exp -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The \verb"narrowing depth" fixes the bound in the number of steps when using
+narrowing:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op narrowing`depth_. : @Token@ -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \texttt{help} prints a help message:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op help`. : -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The rule \texttt{showTr} prints the program resulting after the transformation:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op showTr`. : -> @Command@ .
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+
+The module \texttt{META-PLURAL-SIGN} defines the meta-module \texttt{SGRAMMAR}
+with the signature shown above, as well as the definition of the tokens. We will
+parse the terms introduced by the user with this module:
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod META-PLURAL-SIGN is
+  inc META-LEVEL .
+
+  op SGRAMMAR : -> FModule .
+  eq SGRAMMAR
+    = (fmod 'SGRAMMAR is
+         including 'QID-LIST .
+         including 'PLURAL-SIGN .
+         sorts none .
+         none
+         op 'token : 'Qid -> '@Token@
+              [special(
+                (id-hook('Bubble, '1 '1)
+                 op-hook('qidSymbol, '<Qids>, nil, 'Qid)
+                 id-hook('Exclude, '`[ '`] '< 'to ': '`, '. '`( '`)  '| )))] .
+         none
+         none
+      endfm) .
+endfm
+
+***(%
+\end{verbatim}
+}
+%)
+

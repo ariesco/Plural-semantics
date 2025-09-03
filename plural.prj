@@ -1,0 +1,8 @@
+load aux-modules.maude
+load multiset.maude
+load signature.maude
+load rule-transformation.maude
+load parsing.maude
+load nat-rew.maude
+load s-narrowing.maude
+load db-handling.maude

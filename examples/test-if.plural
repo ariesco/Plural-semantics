@@ -1,0 +1,7 @@
+(plural INFER is
+   g is plural .
+   g(X) -> if tt then pair(X) .
+   
+   pair is plural .
+   pair(X) -> p(X,X) .
+endp)

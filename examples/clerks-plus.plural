@@ -1,0 +1,86 @@
+(plural CLERKS is
+
+  branches is plural .
+  branches -> madrid .
+  branches -> vigo .
+  branches -> badajoz .
+  
+  employees is plural .
+  employees(madrid) -> e(john, men, clerk) .
+  employees(madrid) -> e(larry, men, boss) .
+  employees(vigo) -> e(mary, women, clerk) .
+  employees(vigo) -> e(james, men, boss) .
+  employees(badajoz) -> e(chenoa, women, clerk) .
+  employees(badajoz) -> e(bisbal, men, clerk) .
+  
+  twoclerks is plural .
+  twoclerks -> search(employees(branches)) .
+  
+  search is plural .
+  search(e(N,S,clerk)) -> p(N,N) .
+  
+  takeClerks(N) -> takeAux(N, list(employees(branches))) .
+  
+  takeAux(N, Xs) -> if allDiff(Xs) then take(N, Xs) .
+  
+  take(s(N), cons(X, Xs)) -> cons(X, take(N, Xs)) .
+  take(z, Xs) -> nil .
+  
+  allDiff(nil) -> tt .
+  allDiff(cons(X, Xs)) -> if diff(X, Xs) then allDiff(Xs) .
+  
+  diff(X, nil) -> tt .
+  diff(X, cons(Y, Ys)) -> if neq(X, Y) then diff(X, Ys) .
+  
+  list is plural .
+  list(e(N, S, clerk)) -> nil .
+  list(e(N, S, clerk)) -> cons(N, list(e(N, S, clerk))) .
+  
+  neq(john, larry) -> tt .
+  neq(john, mary) -> tt .
+  neq(john, james) -> tt .
+  neq(john, chenoa) -> tt .
+  neq(john, bisbal) -> tt .
+  
+  neq(larry, mary) -> tt .
+  neq(larry, james) -> tt .
+  neq(larry, chenoa) -> tt .
+  neq(larry, bisbal) -> tt .
+  neq(larry, john) -> tt .
+  
+  neq(mary, larry) -> tt .
+  neq(mary, james) -> tt .
+  neq(mary, chenoa) -> tt .
+  neq(mary, bisbal) -> tt .
+  neq(mary, john) -> tt .
+  
+  neq(james, larry) -> tt .
+  neq(james, mary) -> tt .
+  neq(james, chenoa) -> tt .
+  neq(james, bisbal) -> tt .
+  neq(james, john) -> tt .
+  
+  neq(chenoa, larry) -> tt .
+  neq(chenoa, mary) -> tt .
+  neq(chenoa, james) -> tt .
+  neq(chenoa, bisbal) -> tt .
+  neq(chenoa, john) -> tt .
+  
+  neq(bisbal, larry) -> tt .
+  neq(bisbal, mary) -> tt .
+  neq(bisbal, james) -> tt .
+  neq(bisbal, chenoa) -> tt .
+  neq(bisbal, john) -> tt .
+endp)
+
+(breadth-first .)
+
+eof
+
+(eval takeClerks(s(s(s(z)))) .)
+
+(eval list(employees(branches)) .)
+
+(eval take(s(s(s(z))), cons(z, cons(z, cons(z, cons(z, cons(z, cons(z, cons(z, nil)))))))) .)
+
+(eval twoclerks .)

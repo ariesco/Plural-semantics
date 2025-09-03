@@ -1,0 +1,108 @@
+mod FOO is
+ pr META-LEVEL .
+ 
+ op m : -> Module .
+ eq m = (mod 'FIBO is
+  protecting 'EXT-BOOL .
+  protecting 'QID .
+  sorts 'Exp .
+  subsort 'Nat < 'Exp .
+  subsort 'Qid < 'Exp .
+  op '_?_ : 'Exp 'Exp -> 'Exp [assoc comm] .
+  op 'add : 'Exp 'Exp -> 'Exp [none] .
+  op 'cterm : 'Exp -> 'Bool [none] .
+  op 'ff : nil -> 'Exp [none] .
+  op 'fibo : 'Exp -> 'Exp [none] .
+  op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+  op 'match1 : 'Exp -> 'Exp [none] .
+  op 'match4 : 'Exp -> 'Exp [none] .
+  op 'project1-0-0 : 'Exp -> 'Exp [none] .
+  op 'project4-0-0 : 'Exp -> 'Exp [none] .
+  op 's : 'Exp -> 'Exp [none] .
+  op 'tt : nil -> 'Exp [none] .
+  op 'z : nil -> 'Exp [none] .
+  none
+  eq 'cterm['E:Exp] = 'false.Bool [owise] .
+  eq 'cterm['N:Nat] = 'true.Bool [owise] .
+  eq 'cterm['z.Exp] = 'true.Bool [none] .
+  eq 'cterm['s['V@#$0:Exp]] = 'cterm['V@#$0:Exp] [none] .
+  rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+  rl 'add['V@#$0:Exp,'Y:Exp] => 'if_then_['match1['V@#$0:Exp],'s['add[
+    'project1-0-0['V@#$0:Exp],'Y:Exp]]] [none] .
+  rl 'add['z.Exp,'X:Exp] => 'X:Exp [none] .
+  rl 'fibo['V@#$0:Exp] => 'if_then_['match4['V@#$0:Exp],'add['fibo[
+    'project4-0-0['V@#$0:Exp]],'fibo['s['project4-0-0['V@#$0:Exp]]]]] [none] .
+  rl 'fibo['z.Exp] => 'z.Exp [none] .
+  rl 'fibo['s['z.Exp]] => 's['z.Exp] [none] .
+  rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+  rl 'match1['s['X:Exp]] => 'tt.Exp [label('match1)] .
+  rl 'match4['s['s['N:Exp]]] => 'tt.Exp [label('match4)] .
+  rl 'project1-0-0['s['X:Exp]] => 'X:Exp [label('project1-0-0)] .
+  rl 'project4-0-0['s['s['N:Exp]]] => 'N:Exp [label('project4-0-0)] .
+endm) .
+endm
+
+eof
+
+red metaRewrite(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 1) .
+red metaRewrite(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 2) .
+red metaRewrite(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 3) .
+red metaRewrite(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 4) .
+red metaRewrite(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 5) .
+red metaRewrite(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 6) .
+red metaRewrite(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 7) .
+red metaRewrite(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 8) .
+red metaRewrite(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 9) .
+red metaRewrite(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 10) .
+red metaRewrite(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 11) .
+red metaRewrite(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 12) .
+
+eof
+
+Maude> red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, 'cterm['E:Exp] = 'true.Bool, '*, 10, 0) .
+reduce in FOO : metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, 'cterm['E:Exp] = 'true.Bool, '*, 10, 0) .
+rewrites: 412979 in 1280ms cpu (2527ms real) (322639 rewrites/second)
+result ResultTriple?: (failure).ResultTriple?
+Maude> red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, 'cterm['E:Exp] = 'true.Bool, '*, 12, 0) .
+reduce in FOO : metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, 'cterm['E:Exp] = 'true.Bool, '*, 12, 0) .
+rewrites: 3219257 in 6660ms cpu (18451ms real) (483371 rewrites/second)
+result ResultTriple?: (failure).ResultTriple?
+Maude> red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, 'cterm['E:Exp] = 'true.Bool, '*, 13, 0) .
+reduce in FOO : metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, 'cterm['E:Exp] = 'true.Bool, '*, 13, 0) .
+rewrites: 8223454 in 22410ms cpu (73517ms real) (366954 rewrites/second)
+result ResultTriple?: (failure).ResultTriple?
+
+'fibo['s['s['s['s['s['z.Exp]]]]]] =>
+'add['_`,_['fibo['s['s['s['z.Exp]]]],'fibo['s['s['s['s['z.Exp]]]]]]] =>
+'if_then_['match1['fibo['s['s['s['z.Exp]]]]],'s['add['_`,_['project1-0-0['fibo['s['s['s['z.Exp]]]]],'fibo['s['s['s['s['z.Exp]]]]]]]]] =>
+'if_then_['match1['add['_`,_['fibo['s['z.Exp]],'fibo['s['s['z.Exp]]]]]],'s['add['_`,_['project1-0-0['fibo['s['s['s['z.Exp]]]]],'fibo['s['s['s['s['z.Exp]]]]]]]]] =>
+'if_then_['match1['if_then_['match1['fibo['s['z.Exp]]],'s['add['_`,_['project1-0-0['fibo['s['z.Exp]]],'fibo['s['s['z.Exp]]]]]]]],'s['add['_`,_['project1-0-0['fibo['s['s['s['z.Exp]]]]],'fibo['s['s['s['s['z.Exp]]]]]]]]] =>
+'s['add['_`,_['project1-0-0['fibo['s['s['s['z.Exp]]]]],'fibo['s['s['s['s['z.Exp]]]]]]]] =>
+'s['if_then_['match1['project1-0-0['fibo['s['s['s['z.Exp]]]]]],'s['add['_`,_['project1-0-0['project1-0-0['fibo['s['s['s['z.Exp]]]]]],'fibo['s['s['s['s['z.Exp]]]]]]]]]] =>
+'s['if_then_['match1['project1-0-0['add['_`,_['fibo['s['z.Exp]],'fibo['s['s['z.Exp]]]]]]],'s['add['_`,_['project1-0-0['project1-0-0['fibo['s['s['s['z.Exp]]]]]],'fibo['s['s['s['s['z.Exp]]]]]]]]]] =>
+'s['if_then_['match1['project1-0-0['if_then_['match1['fibo['s['z.Exp]]],'s['add['_`,_['project1-0-0['fibo['s['z.Exp]]],'fibo['s['s['z.Exp]]]]]]]]],'s['add['_`,_['project1-0-0['project1-0-0['fibo['s['s['s['z.Exp]]]]]],'fibo['s['s['s['s['z.Exp]]]]]]]]]] =>
+'s['if_then_['match1['add['_`,_['project1-0-0['fibo['s['z.Exp]]],'fibo['s['s['z.Exp]]]]]],'s['add['_`,_['project1-0-0['project1-0-0['fibo['s['s['s['z.Exp]]]]]],'fibo['s['s['s['s['z.Exp]]]]]]]]]] =>
+'s['if_then_['match1['if_then_['match1['project1-0-0['fibo['s['z.Exp]]]],'s['add['_`,_['project1-0-0['project1-0-0['fibo['s['z.Exp]]]],'fibo['s['s['z.Exp]]]]]]]],'s['add['_`,_['project1-0-0['project1-0-0['fibo['s['s['s['z.Exp]]]]]],'fibo['s['s['s['s['z.Exp]]]]]]]]]] =>
+'s['if_then_['match1['if_then_['match1['project1-0-0['if_then_['match4['s['z.Exp]],'add['_`,_['fibo['project4-0-0['s['z.Exp]]],'fibo['s[
+    'project4-0-0['s['z.Exp]]]]]]]]],'s['add['_`,_['project1-0-0['project1-0-0['fibo['s['z.Exp]]]],'fibo['s['s['z.Exp]]]]]]]],'s['add['_`,_['project1-0-0['project1-0-0[
+    'fibo['s['s['s['z.Exp]]]]]],'fibo['s['s['s['s['z.Exp]]]]]]]]]] =>
+
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 0) .
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 1) .
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 2) .
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 3) .
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 4) .
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 5) .
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 6) .
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 7) .
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 8) .
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 9) .
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 10) .
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 11) .
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 12) .
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 13) .
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 14) .
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 15) .
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 16) .
+red metaSearch(m, 'fibo['s['s['s['s['s['z.Exp]]]]]], 'E:Exp, nil, '*, 30, 17) .
+

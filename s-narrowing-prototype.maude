@@ -1,0 +1,5445 @@
+
+***(%
+
+The implementation of this tool exploits the fact that Maude is reflective,
+which allows access to metalevel entities such as specifications
+or computations as usual data. In the following sections we show how to
+apply this feature in order to obtain the program transformation (Sections
+\ref{subsec:aux} to \ref{subsec:pST}) and the user interface (Sections
+\ref{subsec:parsing} and \ref{subsec:io}).
+
+\subsection{Auxiliary modules}\label{subsec:aux}
+
+We describe in this section the auxiliary modules used in the implementation
+of the tool.
+
+The parameterized module \verb"MAYBE{X :: TRIV}"
+adds a default value \texttt{maybe} to the sort
+used in the instantiation of the module.
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod MAYBE{X :: TRIV} is
+ sort Maybe{X} .
+ subsort X$Elt < Maybe{X} .
+ op maybe : -> Maybe{X} .
+endfm
+
+fmod PAIR{X :: TRIV, Y :: TRIV} is
+ sort Pair{X, Y} .
+
+ var X : X$Elt .
+ var Y : Y$Elt .
+
+ op <_,_> : X$Elt Y$Elt -> Pair{X, Y} .
+
+ op first : Pair{X, Y} -> X$Elt .
+ op snd : Pair{X, Y} -> Y$Elt .
+
+ eq first(< X, Y >) = X .
+ eq snd(< X, Y >) = Y .
+endfm
+
+***(%
+\end{verbatim}
+}
+
+To instantiate these parameterized modules we have to define views
+fulfilling the theory \texttt{TRIV}. We have defined such views
+for the sorts \texttt{Module}, \texttt{TermList}, \texttt{RuleSet},
+\texttt{OpDeclSet}, \texttt{NatList}, and \texttt{QidList}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+view Module from TRIV to META-MODULE is
+ sort Elt to Module .
+endv
+
+view TermList from TRIV to META-TERM is
+ sort Elt to TermList .
+endv
+
+view EquationSet from TRIV to META-MODULE is
+ sort Elt to EquationSet .
+endv
+
+view RuleSet from TRIV to META-MODULE is
+ sort Elt to RuleSet .
+endv
+
+view OpDeclSet from TRIV to META-MODULE is
+ sort Elt to OpDeclSet .
+endv
+
+view Pos from TRIV to NAT-LIST is
+ sort Elt to NatList .
+endv
+
+view QidList from TRIV to QID-LIST is
+ sort Elt to QidList .
+endv
+
+***(%
+\end{verbatim}
+}
+
+\begin{comment}
+
+The module \texttt{META-OPS} defines auxiliary functions over modules and
+terms.
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod META-OPS is
+ pr META-LEVEL .
+
+ var  Q : Qid .
+ var  TL : TermList .
+ var  T T' : Term .
+ vars V V' : Variable .
+ var  SB : Substitution .
+
+***(%
+\end{verbatim}
+}
+
+The function \verb"getVars" recursively traverses the term
+(using an auxiliary function \verb"getVars*?" for the lists of arguments)
+looking for variables.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op getVars : Term -> TermList .
+ op getVars* : TermList -> TermList .
+ eq getVars(Q[TL]) = getVars*(TL) .
+ eq getVars(V) = V .
+ eq getVars(T) = empty [owise] .
+ eq getVars*((T, TL)) = getVars(T), getVars*(TL) .
+ eq getVars*(empty) = empty .
+
+***(%
+\end{verbatim}
+}
+
+When \verb"getVars" is applied to substitutions, it extracts the variables
+only from the terms.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op getVars : Substitution -> TermList .
+ eq getVars((none).Substitution) = empty .
+ eq getVars(V <- T ; SB) = getVars(T), getVars(SB) .
+
+ op substitute : Substitution Variable Term -> Substitution .
+ eq substitute(none, V, T) = none .
+ eq substitute(V <- T ; SB, V', T') = V <- substitute(T, V' <- T') ; substitute(SB, V', T') .
+
+ op substitute : Term Substitution -> Term .
+ eq substitute(Q[TL], SB) = Q[substitute*(TL, SB)] .
+ eq substitute(T, T <- T' ; SB) = T' .
+ eq substitute(T, SB) = T [owise] .
+
+ op substitute* : TermList Substitution -> TermList .
+ eq substitute*(empty, SB) = empty .
+ eq substitute*((T, TL), SB) = substitute(T, SB), substitute*(TL, SB) .
+
+  op _contains_ : TermList Term -> Bool .
+  eq empty contains T = false .
+  eq (T, TL) contains T = true .
+  eq (T, TL) contains T' = TL contains T' [owise] .
+
+  op size : TermList -> Nat .
+  eq size(empty) = 0 .
+  eq size((T, TL)) = s(size(TL)) .
+
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+The module \texttt{MODULE-CONSTRAINTS} specifies the constraints that a
+module must satisfy to be a valid $\pi$CRWL module.
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod MODULE-CONSTRAINTS is
+ pr META-OPS .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{check-constraints} is in charge of this checking. It returns
+the empty list of quoted identifiers when the constraints are satisfied, and a
+message explaining the error otherwise.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ *** Main
+ op check-constraints : Module QidSet QidSet -> QidList .
+
+ ceq check-constraints(M, SQS, PQS) = *** check-combination(M, SQS, PQS)
+                            patternLhss(M, Rs) linearLhss(M, Rs) noExtraVariabless(M, Rs)
+                            wrongFunctionSymbolss(M, Rs)
+  if Rs := getRls(M) .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{check-combination} is in charge of checking the errors due
+to the combination of singular and plural semantics.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op check-combination : Module QidSet QidSet -> QidList .
+ eq check-combination(M, SQS, PQS) = check-combination1(SQS, PQS)
+                                     check-combination2(getOps(M), SQS ; PQS)
+                                     check-combination3(getRls(M), SQS ; PQS) .
+
+***(%
+\end{verbatim}
+}
+
+This function performs several checks:
+
+\begin{itemize}
+
+\item \texttt{check-combination1} examines if there is a function symbol
+with both singular and plural semantics.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op check-combination1 : QidSet QidSet -> QidList .
+ eq check-combination1(Q ; SQS, Q ; PQS) = '\n 'The 'function '\! Q '\o 'has 'both
+                                           'singular 'and 'plural 'semantics. '\n
+                                           check-combination1(SQS, PQS) .
+ eq check-combination1(SQS, PQS) = nil [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{check-combination2} checks if a semantic declaration is ambiguous.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op check-combination2 : OpDeclSet QidSet -> QidList .
+ ceq check-combination2(op Q : TyL -> Ty [AtS] . op Q : TyL' -> Ty' [AtS'] .
+                        ODS, Q ; QS) = '\n 'Arity 'of 'symbol '\! Q '\o 'needed. '\n
+                                       check-combination2(ODS, QS)
+  if not hasArity(Q) .
+ eq check-combination2(ODS, QS) = nil [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{hasArity} checks if the function symbol contains its arity.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op hasArity : Qid -> Bool .
+ eq hasArity(Q) = find(string(Q), "/", 0) =/= notFound .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{check-combination3} prints an error when the operator does not exist.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op check-combination3 : RuleSet QidSet -> QidList .
+ ceq check-combination3(Rs, Q ; QS) = '\n '\! Q '\o 'is 'not 'a 'function 'symbol. '\n
+                                      check-combination3(Rs, QS)
+  if not usedAtTop(Rs, removeArity(Q)) .
+ eq check-combination3(Rs, QS) = nil [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where the function \texttt{usedAtTop} checks if the function symbol is
+used at top in the program rules and \texttt{removeArity} removes the arity at the
+end of the symbol if needed.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op usedAtTop : RuleSet Qid -> Bool .
+ eq usedAtTop(rl Q[TL] => T [AtS] . Rs, Q) = true .
+ ceq usedAtTop(rl Ct => T [AtS] . Rs, Q) = true
+  if getName(Ct) == Q .
+ eq usedAtTop(Rs, Q) = false [owise] .
+
+ op removeArity : Qid -> Qid .
+ ceq removeArity(Q) = qid(S')
+  if S := string(Q) /\
+     N := find(S, "/", 0) /\
+     S' := substr(S, 0, N) .
+ eq removeArity(Q) = Q [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+
+\begin{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+ *** Check linearity of left-hand sides
+ op linearLhs : Module Rule -> QidList .
+ op linearLhss : Module RuleSet -> QidList .
+ *** Check that every left-hand side is a pattern
+ op patternLhs : Module Rule -> QidList .
+ op patternLhss : Module RuleSet -> QidList .
+ op ctermList : Module TermList -> QidList .
+ *** Check the abstence of extra variables in program rules
+ op noExtraVariables : Module Rule -> QidList .
+ op noExtraVariabless : Module RuleSet -> QidList .
+
+ *** Aux
+ --- red isVar('X:Exp) .  red isVar('f['V@#$0:Exp]) .
+ op metaPrettyPrintRule : Module Rule PrintOptionSet ~> QidList .
+ op metaPrettyPrintRuleSet : Module RuleSet PrintOptionSet ~> QidList .
+ op metaPrettyPrintRulePlural : Module Rule PrintOptionSet ~> QidList .
+ op metaPrettyPrintRuleSetPlural : Module Rule PrintOptionSet ~> QidList .
+ op doMetaPrettyPrintRuleSetPlural : Module Rule PrintOptionSet ~> QidList .
+ *** List processing
+   *** difTL(T, Tl) == filter (/=T) Tl
+   *** red difTL('N:Exp, ('N:Exp,'S:Exp, 'N:Exp)) .
+ op difTL : Term TermList -> TermList .
+   *** nubTL == Haskell nub
+   *** red nubTL(('N:Exp,'S:Exp, 'N:Exp)) .
+ op nubTL : TermList -> TermList .
+   *** minusTL == Haskell list "set" difference (\\)
+ op minusTL : TermList TermList -> TermList .
+
+ op printOptions : -> PrintOptionSet .
+ eq printOptions = mixfix number rat format .
+
+ op printPath : Module TermList -> QidList .
+ eq printPath(M, empty) = nil .
+ eq printPath(M, T) = metaPrettyPrint(M, T, printOptions) .
+ eq printPath(M, (T, T', TL)) = metaPrettyPrint(M, T, printOptions) '\n '---> '\n
+                                printPath(M, (T', TL)) .
+
+ op isVar : Term -> Bool .
+ eq isVar(V) = true .
+ eq isVar(T) = false [owise] .
+
+ var  M : Module .
+ var  Ops : PrintOptionSet .
+ vars TL TL' TLc : TermList .
+ vars T T' Tc Tc' : Term .
+ var  V : Variable .
+ vars AtS AtS' : AttrSet .
+ var  Rs : RuleSet .
+ var  R : Rule .
+ vars Q Fc : Qid .
+ vars Msg QIL : QidList .
+ var  Ct : Constant .
+ vars TyL TyL' : TypeList .
+ vars Ty Ty' : Type .
+ var  ODS : OpDeclSet .
+ var  Ch : Char .
+ vars SQS PQS QS : QidSet .
+ vars S S' : String .
+ var  N : Nat .
+ var  COND : Condition .
+
+ ceq linearLhs(M, (rl Tc => Tc' [ AtS ].)) = nil
+   if TLc := getVars(Tc)
+      /\ (nubTL(TLc) == TLc) .
+ eq linearLhs(M, R) = 'Non-linear 'left-hand 'side 'in 'rule ' '`( metaPrettyPrintRule(M, R, mixfix) '`) '\n [owise] .
+ eq linearLhss(M, none) = nil .
+ eq linearLhss(M, R Rs) = linearLhs(M, R) linearLhss(M, Rs) .
+
+ eq ctermList(M, empty) = nil .
+ ceq ctermList(M, (T, TL)) = ctermList(M, TL)
+    if getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool .
+ eq ctermList(M, (T, TL)) = '\t 'argument ': metaPrettyPrint(M, T, mixfix) ' 'is 'not 'a 'CTerm '\n ctermList(M, TL) [owise] .
+
+ ceq patternLhs(M, R) = if Msg == nil
+                           then nil
+                           else 'Left-hand 'side 'of 'rule ' '`( metaPrettyPrintRule(M, R, mixfix) '`) ' 'is 'not 'a 'pattern '\n Msg
+                        fi
+  if (rl (Fc [ TLc ]) => Tc' [ AtS ] .) := R  /\ Msg := ctermList(M, TLc) .
+ eq patternLhs(M, rl Ct => Tc' [ AtS ] .) = nil .
+ ceq patternLhs(M, R) =  'Left-hand 'side 'of 'rule ' '`( metaPrettyPrintRule(M, R, mixfix) '`) ' 'is 'not 'a 'pattern 'but 'a 'variable '\n
+    if (rl V => Tc' [ AtS ] .) := R .
+ eq patternLhss(M, none) = nil .
+ eq patternLhss(M, R Rs) = patternLhs(M, R) patternLhss(M, Rs) .
+
+ ceq noExtraVariables(M, R) = nil
+   if (rl Tc => Tc' [ AtS ] .) := R /\ TL := getVars(Tc) /\ TL' := getVars(Tc')
+     /\ ((TL' == empty) or (minusTL(TL', TL) == empty)) .
+ eq noExtraVariables(M, R) = 'Extra 'variables 'in 'right-hand 'side 'of 'rule ' '`( metaPrettyPrintRule(M, R, mixfix) '`) '\n [owise] .
+ eq noExtraVariabless(M, none) = nil .
+ eq noExtraVariabless(M, R Rs) = noExtraVariables(M, R) noExtraVariabless(M, Rs) .
+
+ op wrongFunctionSymbolss : Module RuleSet -> QidList .
+ op wrongFunctionSymbols : Module Rule -> QidList .
+ op wrongFunctionSymbols : Term -> QidList .
+ op wrongFunctionSymbolss : TermList -> QidList .
+ eq wrongFunctionSymbolss(M, none) = nil .
+ eq wrongFunctionSymbolss(M, R Rs) = wrongFunctionSymbols(M, R) wrongFunctionSymbolss(M, Rs) .
+ ceq wrongFunctionSymbols(M, rl T => T' [AtS] .) = if Msg == nil
+                                                   then nil
+                                                   else ('Wrong 'function 'symbols 'in 'rule '
+                                                        '`( metaPrettyPrintRule(M, rl T => T' [AtS] ., mixfix) '`) ':
+                                                        Msg '\n)
+                                                   fi
+  if Msg := wrongFunctionSymbols(T) wrongFunctionSymbols(T') .
+
+ eq wrongFunctionSymbols(Q[TL]) = if isVar?(Q) then Q else nil fi wrongFunctionSymbolss(TL) .
+ eq wrongFunctionSymbols(T) = nil [owise] .
+
+ op isVar? : Qid -> Bool .
+ eq isVar?(Q) = upperCase?(firstLetter(Q)) .
+ eq isVar?(Q) = false [owise] .
+
+ op firstLetter : Qid -> Char .
+ eq firstLetter(Q) = substr(string(Q), 0, 1) .
+
+ *** The ascii values of "A" and "Z" are 65 and 90 respectively.
+ op upperCase? : Char -> Bool .
+ eq upperCase?(Ch) = 65 <= ascii(Ch) and-then ascii(Ch) <= 90 .
+
+ eq wrongFunctionSymbolss((T, TL)) = wrongFunctionSymbols(T) wrongFunctionSymbolss(TL) .
+ eq wrongFunctionSymbolss(empty) = nil .
+
+ eq metaPrettyPrintRule(M, (rl Tc => Tc' [ AtS ].), Ops) =  ('rl metaPrettyPrint(M,Tc, Ops) '=> metaPrettyPrint(M,Tc', Ops) '.) .
+ eq metaPrettyPrintRuleSet(M, none, Ops) = nil .
+ eq metaPrettyPrintRuleSet(M, R Rs, Ops) = metaPrettyPrintRule(M, R, Ops) '\n metaPrettyPrintRuleSet(M, Rs, Ops) .
+
+ eq metaPrettyPrintRulePlural(M, (rl Tc => Tc' [ AtS ].), Ops) =
+                          ('\t add-spaceR(metaPrettyPrint(M,Tc, Ops)) '->
+                          add-spaceL(metaPrettyPrint(M,Tc', Ops) '.)) .
+ eq metaPrettyPrintRuleSetPlural(M, Rs, Ops) = '`( 'plural 'CURRENT 'is '\n doMetaPrettyPrintRuleSetPlural(M, Rs, Ops) 'endp '`) '\n  .
+ eq doMetaPrettyPrintRuleSetPlural(M, none, Ops) = nil .
+ eq doMetaPrettyPrintRuleSetPlural(M, R Rs, Ops) = metaPrettyPrintRulePlural(M, R, Ops) '\n doMetaPrettyPrintRuleSetPlural(M, Rs, Ops) .
+
+ op add-spaceR : QidList -> QidList .
+ eq add-spaceR(QIL '`)) = QIL '`) ' .
+ eq add-spaceR(QIL '`]) = QIL '`] ' .
+ eq add-spaceR(QIL '`}) = QIL '`} ' .
+ eq add-spaceR(QIL) = QIL [owise] .
+
+ op add-spaceL : QidList -> QidList .
+ eq add-spaceL('`( QIL) = ' '`( QIL .
+ eq add-spaceL('`[ QIL) = ' '`[ QIL .
+ eq add-spaceL('`{ QIL) = ' '`{ QIL .
+ eq add-spaceL(QIL) = QIL [owise] .
+
+ eq difTL(Tc, empty) = empty .
+ eq difTL(Tc, (Tc, TLc)) = difTL(Tc, TLc).
+ eq difTL(Tc, (Tc', TLc)) = Tc', (difTL(Tc, TLc)) [owise] .
+ eq nubTL(empty) = empty .
+ eq nubTL(Tc) = Tc .
+ eq nubTL((Tc , TLc)) = Tc , difTL(Tc , TLc) .
+ eq minusTL(TLc, empty) = TLc .
+ eq minusTL(TLc, (Tc, TL)) =  minusTL(difTL(Tc, TLc), TL).
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{valid} checks if a term is valid with respect to the
+syntax of a given module.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op valid : Module Term -> Bool .
+  ceq valid(M, T) = true
+   if sameKind(M, leastSort(M, T), 'Nat) .
+  eq valid(M, Q[TL]) = valid(getOps(M), Q[TL]) and-then valid*(M, TL) .
+  eq valid(M, Ct) = valid(getOps(M), Ct) .
+  eq valid(M, T) = false [owise] .
+
+***(%
+\end{verbatim}
+}
+
+An auxiliary function \texttt{valid} checks if the function symbol has
+been defined with the appropriate arity, while \texttt{valid*} traverses
+a list of terms checking that each one is valid.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op valid : OpDeclSet Term -> Bool .
+  eq valid(op Q : TyL -> Ty [AtS] . ODS, Q[TL]) = if sameSize(TyL, TL)
+                                                  then true
+                                                  else valid(ODS, Q[TL])
+                                                  fi .
+  eq valid(op Q : nil -> Ty [AtS] . ODS, Ct) = if getName(Ct) == Q
+                                               then true
+                                               else valid(ODS, Ct)
+                                               fi .
+  eq valid(ODS, T) = false [owise] .
+
+  op sameSize : TypeList TermList -> Bool .
+  eq sameSize(nil, empty) = true .
+  eq sameSize(Ty TyL, (T, TL)) = sameSize(TyL, TL) .
+  eq sameSize(TyL, TL) = false [owise] .
+
+  op valid* : Module TermList -> Bool .
+  eq valid*(M, empty) = true .
+  eq valid*(M, (T, TL)) = valid(M, T) and-then valid*(M, TL) .
+
+  ops equivalent no-equivalent : -> QidList .
+  eq equivalent = '\n 'Both 'alpha 'and 'beta 'plural 'semantics 'supported 'for 'this 'program. '\n .
+  eq no-equivalent = '\n 'Only 'alpha 'semantics 'supported 'for 'this 'program. '\n .
+
+  op equivalent? : Module -> Bool .
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+\begin{comment}
+
+\begin{verbatim}
+%)
+
+fmod TERMSET is
+  protecting META-LEVEL .
+
+  sort TermSet .
+  subsort Term < TermSet .
+  op emptyTermSet : -> TermSet [ctor] .
+  op _|_ : TermSet TermSet -> TermSet
+    [ctor assoc comm id: emptyTermSet format (d n d d)] .
+  eq X:Term | X:Term = X:Term .
+
+  op _in_ : Term TermSet -> Bool .
+  eq T:Term in (T:Term | TS:TermSet) = true .
+  eq T:Term in TS:TermSet = false [owise] .
+
+  op TermSet : TermList -> TermSet .
+  eq TermSet(empty)
+   = emptyTermSet .
+  eq TermSet((T:Term,TL:TermList))
+   = T:Term | TermSet(TL:TermList) .
+
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+%)  ---- from the book All About Maude
+  ---- by the Maude team
+
+  fmod MULTISET{X :: TRIV} is
+    protecting NAT .
+    pr SET{X} .
+
+    sort Mset{X} .
+    subsort X$Elt < Mset{X} .
+
+    op emptyMS : -> Mset{X} [ctor] .
+    op _._ : Mset{X} Mset{X} -> Mset{X} [ctor assoc comm id: emptyMS] .
+
+    op isEmpty : Mset{X} -> Bool .
+    op sizeOf : Mset{X} -> Nat .
+
+    op setToMultiset : Set{X} -> Mset{X} .
+    op multisetToSet : Mset{X} -> Set{X} .
+
+    vars E E' : X$Elt .
+    vars S S' : Mset{X} .
+    vars C : Set{X} .
+
+    eq isEmpty(emptyMS) = true .
+    eq isEmpty(E . S) = false .
+
+    eq sizeOf(emptyMS) = 0 .
+    eq sizeOf(E . S) = 1 + sizeOf(S) .
+
+    op isIn : X$Elt Mset{X} -> Bool .
+    op mult : X$Elt Mset{X} -> Nat .
+
+    eq isIn(E, E . S) = true .
+    eq isIn(E, S) = false [owise] .
+
+    eq mult(E, E . S) = 1 + mult(E, S) .
+    eq mult(E, S) = 0 [owise] .
+
+    op deleteMS : X$Elt Mset{X} -> Mset{X} .
+    op deleteMS1 : X$Elt Mset{X} -> Mset{X} .
+
+    eq deleteMS(E, E . S) = deleteMS(E, S) .
+    eq deleteMS(E, S) = S [owise] .
+
+    eq deleteMS1(E, E . S) = S .
+    eq deleteMS1(E, S) = S [owise] .
+
+    op intersectionMS : Mset{X} Mset{X} -> Mset{X} .
+    op difference : Mset{X} Mset{X} -> Mset{X} .
+
+    eq intersectionMS(E . S, E . S') = E . intersectionMS(S, S') .
+    eq intersectionMS(S, S') = emptyMS [owise] .
+
+    eq difference(E . S, E . S') = difference(S, S') .
+    eq difference(S, S') = S [owise] .
+
+    eq setToMultiset(empty) = emptyMS .
+    eq setToMultiset((E , C)) = E . setToMultiset(C) .
+
+    eq multisetToSet(emptyMS) = empty .
+    eq multisetToSet((E . S)) = E , multisetToSet(S) .
+  endfm
+
+***(
+  fmod MULTISET-TEST is
+    protecting MULTISET{Int} .
+  endfm
+
+Maude> red mult(2, 2 2 1 2 3 2) .
+reduce in MULTISET-TEST : mult(2, 2 2 1 2 2 3) .
+rewrites: 9 in 0ms cpu (0ms real) (~ rewrites/second)
+result NzNat: 4
+
+Maude> red intersectionMS(2 2 3 4, 2 2 1 3 3 2) .
+reduce in MULTISET-TEST : intersectionMS(2 2 3 4, 2 2 1 3 2 3) .
+rewrites: 4 in 0ms cpu (0ms real) (~ rewrites/second)
+result Mset{Int}: 2 2 3
+
+Maude> red difference(2 2 3 4, 2 2 1 3 3 2) .
+reduce in MULTISET-TEST : difference(2 2 3 4, 2 2 1 3 2 3) .
+rewrites: 4 in 0ms cpu (0ms real) (~ rewrites/second)
+result NzNat: 4
+)
+
+***(%
+
+\subsection{Signature}\label{subsec:signature}
+
+We describe in this section the signature of the modules introduced by the user.
+This signature is defined in the \verb"PLURAL-SIGN" module:
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod PLURAL-SIGN is
+
+***(%
+\end{verbatim}
+}
+
+The sort \verb"@Input@" defines all the possible data that can be introduced
+by the user, being \verb"@Command@" a particular case of this input:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  sorts @Input@ @Command@ .
+  subsort @Command@ < @Input@ .
+
+***(%
+\end{verbatim}
+}
+
+We define now the components of the modules introduced by the user. \verb"@Token@"
+symbolizes any possible quoted identifier, that is a concrete case of expression.
+The syntax \verb"_,_" builds lists of expressions, and we obtain functions with
+parameters by using brackets (syntax \verb"_`(_`)"). The arrow \verb"->" constructs
+rules, that are put together by juxtaposition (syntax \verb"__"):
+
+{\codesize
+\begin{verbatim}
+%)
+
+  sorts @Token@ Exp ExpList Rule Decl StmntList Module .
+  subsort @Token@ < Exp .
+  subsort Exp < ExpList .
+  subsort Rule < StmntList .
+  subsort Decl < StmntList .
+  subsort Module < @Input@ .
+
+  op _,_ : ExpList ExpList -> ExpList [assoc prec 25] .
+  op _`(_`) : @Token@ ExpList -> Exp [prec 10] .
+
+  op _->_. : Exp Exp -> Rule [prec 30] .
+  op _is_. : @Token@ @Token@ -> Decl [prec 30] .
+
+  op __ : StmntList StmntList -> StmntList [comm assoc prec 35] .
+
+***(%
+\end{verbatim}
+}
+
+The predefined functions \verb"_?_" and \verb"if_then_" are also defined
+here:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op _?_ : Exp Exp -> Exp [assoc comm prec 15] .
+  op if_then_ : Exp Exp -> Exp [prec 20] .
+
+***(%
+\end{verbatim}
+}
+
+We show now the syntax of the commands:
+
+\begin{itemize}
+
+\item Modules are introduced with syntax \verb"plural_is_endp", that expects
+a token (the module identifier) and a list of rules:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op plural_is_endp : @Token@ StmntList -> Module .
+
+***(%
+\end{verbatim}
+}
+
+\item Modules for q-narrowing are introduced with the following syntax:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op smod_is_ends : @Token@ StmntList -> Module .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \texttt{eval} evaluates the expression to obtain a value:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op eval_. : Exp -> @Command@ .
+  op eval`[depth=_`]_. : @Token@ Exp -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \texttt{eval-gen} evaluates an expression with variables by using generators:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op eval-gen_. : Exp -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \texttt{more} demands a new value from the last
+evaluated expression:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op more`. : -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \texttt{cont} looks for more solutions in the narrowing process:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op cont`. : -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The commands \texttt{path on} and \texttt{path off} activate and deactivate
+the path:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op path`on`. : -> @Command@ .
+  op path`off`. : -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \texttt{show path} prints the path to the last solution:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op show`path`. : -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \texttt{reboot} to restarts the tool:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op reboot`. : -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The commands \texttt{depth-first} and \texttt{width-first} allow to
+change the search strategy:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op depth-first`. : -> @Command@ .
+  op width-first`. : -> @Command@ .
+  op breadth-first`. : -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \verb"=?" is used to introduce unification problems:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op _=?_. : Exp Exp -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \verb"narrowing" is used to compute the cterms reachable by using
+narrowing:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op narrowing_. : Exp -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The \verb"narrowing depth" fixes the bound in the number of steps when using
+narrowing:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op narrowing`depth_. : @Token@ -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The command \texttt{help} prints a help message:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op help`. : -> @Command@ .
+
+***(%
+\end{verbatim}
+}
+
+\item The rule \texttt{showTr} prints the program resulting after the transformation:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op showTr`. : -> @Command@ .
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+
+The module \texttt{META-PLURAL-SIGN} defines the meta-module \texttt{SGRAMMAR}
+with the signature shown above, as well as the definition of the tokens. We will
+parse the terms introduced by the user with this module:
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod META-PLURAL-SIGN is
+  inc META-LEVEL .
+
+  op SGRAMMAR : -> FModule .
+  eq SGRAMMAR
+    = (fmod 'SGRAMMAR is
+         including 'QID-LIST .
+         including 'PLURAL-SIGN .
+         sorts none .
+         none
+         op 'token : 'Qid -> '@Token@
+              [special(
+                (id-hook('Bubble, '1 '1)
+                 op-hook('qidSymbol, '<Qids>, nil, 'Qid)
+                 id-hook('Exclude, '`[ '`] '< 'to ': '`, '. '`( '`)  '| )))] .
+         none
+         none
+      endfm) .
+endfm
+
+***(%
+\end{verbatim}
+}
+%)
+
+
+***(%
+
+\subsection{Module transformation}\label{subsec:pST}
+
+The module \texttt{PLURAL-TRANSFORMATION} is in charge of the transformation
+from CRWL to $\pi$CRWL.
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod PLURAL-TRANSFORMATION is
+  inc META-LEVEL .
+  pr CONVERSION .
+  pr MAP{TermList, TermList} * (sort Map{TermList, TermList} to Table) .
+  pr MODULE-CONSTRAINTS .
+  pr PAIR{EquationSet, RuleSet} .
+
+***(%
+\end{verbatim}
+}
+
+\begin{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+  var  Q : Qid .
+  vars TL TL' Rhos VarsRHS Vars : TermList .
+  vars T T' MatchExp Rho NewRHS : Term .
+  var  Ct : Constant .
+  vars RS RS' RS'' ProjectRules : RuleSet .
+  vars EqS EqS' ProjectEqS : EquationSet .
+  vars R MatchRule : Rule .
+  vars AtS AtS' : AttrSet .
+  var  V : Variable .
+  vars N N' N'' : Nat .
+  var  ProjectTable : Table .
+  var  ODS : OpDeclSet .
+  var  TyL : TypeList .
+  var  Ty : Type .
+  var  S : String .
+  var  M : Module .
+  var  COND : Condition .
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+The function \texttt{pST*} traverses the rules, applying the function
+\texttt{pST} to each one.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op pST* : RuleSet OpDeclSet -> RuleSet .
+  op pST* : RuleSet OpDeclSet Nat -> RuleSet .
+
+  eq pST*(RS, ODS) = pST*(RS, ODS, 0) .
+
+  eq pST*(R RS, ODS, N) = pST(R, getMetadata(ODS, R), N) pST*(RS, ODS, s(N)) .
+  eq pST*(none, ODS, N) = none .
+
+  op getMetadata : OpDeclSet Rule -> String .
+  eq getMetadata(op Q : TyL -> Ty [metadata(S) AtS] . ODS, rl Q[TL] => T [AtS'] .) = S .
+  eq getMetadata(ODS, R) = "" [owise] .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{pST} reproduces the program transformation shown
+in \cite{rodH08}. It receives the rule that must be transformed and an index
+to create fresh function names related to this rule.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op pST : Rule String Nat -> RuleSet .
+
+***(%
+\end{verbatim}
+}
+
+If the list of $\rho_i$ associated with the arguments (and computed with
+\texttt{computeRhos}) is empty, then the rule is not transformated.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  ceq pST(rl T => T' [AtS] ., S, N) = rl T => T' [AtS] .
+   if computeRhos(T, S) == empty .
+
+***(%
+\end{verbatim}
+}
+
+If the list of $\rho_i$ is not empty, then we must transform the rule. First,
+the list of $\rho_i$ is computed with the \texttt{computeRhos} function used
+above. The \texttt{match} expression used in the if condition is computed with
+the function \texttt{createMatchExp}, that receives as argument the size of
+list of $\rho_i$ to create the same number of fresh variables. The rule that
+will be applied when this condition holds if defined with the function
+\texttt{createMatchRule}. The function \texttt{computeSubstitutions}
+calculates the project function that substitutes each variable in the
+righthand side, and keeps the result in the table \texttt{ProjectTable}.
+This table is then used to make the substitution and obtain the result
+of the if statement. The rules associated with each projection are obtained
+by means of \texttt{createProjectRules}. Finally, the application of the
+$\tau$ function to the arguments of the lefthand side of the rule is made
+with \texttt{applyTau}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  ceq pST(rl T => T' [AtS] ., S, N) = rl applyTau(T, S) => 'if_then_[MatchExp, NewRHS] [AtS] .
+                                      MatchRule
+                                      ProjectRules
+   if Rhos := computeRhos(T, S) /\
+      Rhos =/= empty /\
+      VarsRHS := getVars(T') /\
+      MatchExp := createMatchExp(size(Rhos), N) /\
+      MatchRule := createMatchRule(Rhos, N) /\
+      ProjectTable := computeSubstitutions(Rhos, VarsRHS, N) /\
+      NewRHS := substitute(T', ProjectTable) /\
+      ProjectRules := createProjectRules(Rhos, VarsRHS, N) .
+
+***(%
+\end{verbatim}
+}
+
+The auxiliary functions used in this equation are defined as follows:
+
+\begin{itemize}
+
+\item The function \texttt{computeRhos} calculates the
+list of arguments that contain variables but they are not variables
+themselves.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op computeRhos : Term String -> TermList .
+
+***(%
+\end{verbatim}
+}
+
+To compute this, the function distingishes if the term has arguments or it
+is a constant. If it has arguments, they are traversed by using
+\texttt{computeRhos*}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq computeRhos(Q[TL], S) = computeRhos*(TL, S) .
+  eq computeRhos(T, S) = empty [owise] .
+
+  op computeRhos* : TermList String -> TermList .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{computeRhos*} also needs an auxiliary function
+\verb"rho?" that checks if the argument corresponds to a $\rho_i$.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq computeRhos*(empty, S) = empty .
+  eq computeRhos*((T, TL), S) = if substr(S, 0, 1) == "p" and-then rho?(T)
+                                then T
+                                else empty
+                                fi, computeRhos*(TL, substr(S, 1, length(S))) .
+
+  op rho? : Term -> Bool .
+
+***(%
+\end{verbatim}
+}
+
+To check it, \verb"rho?" examines that the term contains variables
+different to itself.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq rho?(T) = getVars(T) =/= empty and getVars(T) =/= T .
+
+***(%
+\end{verbatim}
+}
+
+\item We use the function \texttt{createMatchExp} to create the ``if'' condition.
+It receives the number of $\rho_i$ obtained for the current rule and the
+rule index and creates a fresh function name.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op createMatchExp : Nat Nat -> Term .
+  ceq createMatchExp(N, N') = Q[createFreshVars(N)]
+   if Q := qid("match" + string(N', 10)) .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where \texttt{createFreshVars} creates the number of
+fresh variables indicated by its parameter. The fresh variables
+have the form \verb"V@#$" and an index, which is not expected to
+be used by the user.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op createFreshVars : Nat -> TermList .
+  eq createFreshVars(0) = empty .
+  eq createFreshVars(s(N)) = createFreshVars(N), createFreshVar(N) .
+
+  op createFreshVar : Nat -> Variable .
+  eq createFreshVar(N) = qid("V@#$" + string(N, 10) + ":Exp") .
+
+***(%
+\end{verbatim}
+}
+
+\item We use the function \texttt{createMatchRule} to indicate when the match
+condition above holds. The function must hold when the arguments of the match
+condition are the concrete $\rho_i$, so we introduce them in the rule. The
+rule index distinguishes the different match rules.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op createMatchRule : TermList Nat -> Rule .
+  ceq createMatchRule(Rhos, N) = rl Q[Rhos] => 'tt.Exp [label(Q)] .
+   if Q := qid("match" + string(N, 10)) .
+
+***(%
+\end{verbatim}
+}
+
+\item To obtain the new rules, the variables in each $\rho_i \cap var(r)$ will be
+substituted by the projection functions computed below. In order to make this
+substitution, we compute a table that indicates for each variable the function
+that must be substituted for. The function \texttt{computeSubstitutions}
+accomplish this by traversing the $\rho_i$ with a parameter indicating its index.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op computeSubstitutions : TermList TermList Nat -> Table .
+  eq computeSubstitutions(Rhos, VarsRHS, N) = computeSubstitutions(Rhos, VarsRHS, N, 0) .
+
+  op computeSubstitutions : TermList TermList Nat Nat -> Table .
+
+***(%
+\end{verbatim}
+}
+
+An auxiliary \texttt{computeSubstitutions} function traverses now the variables
+of $\rho_i \cap var(r)$, using another index for them.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq computeSubstitutions((Rho, Rhos), VarsRHS, N, N') =
+                  computeSubstitutions(int(getVars(Rho), VarsRHS), N, N', 0),
+                  computeSubstitutions(Rhos, VarsRHS, N, s(N')) .
+  eq computeSubstitutions(empty, VarsRHS, N, N') = empty .
+
+***(%
+\end{verbatim}
+}
+
+The last \texttt{computeSubstitutions} function uses \texttt{projectFunctionName}
+to obtain the name of the projection, and keeps it in the map.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op computeSubstitutions : TermList Nat Nat Nat -> Table .
+  eq computeSubstitutions((V, Vars), N, N', N'') =
+                 V |-> projectFunctionName(N, N', N'')[createFreshVar(N')],
+                 computeSubstitutions(Vars, N, N', s(N'')) .
+  eq computeSubstitutions(empty, N, N', N'') = empty .
+
+***(%
+\end{verbatim}
+}
+
+\item To create the rules for the projection functions we traverse the $\rho_i$
+with the function \texttt{createProjectRules}, creating the corresponding
+function with the rule index and the index $i$.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op createProjectRules : TermList TermList Nat -> RuleSet .
+  eq createProjectRules(Rhos, VarsRHS, N) = createProjectRules(Rhos, VarsRHS, N, 0) .
+
+  op createProjectRules : TermList TermList Nat Nat -> RuleSet .
+
+***(%
+\end{verbatim}
+}
+
+The auxiliary function \texttt{createProjectRules} traverses now the variables
+of $\rho_i$ intersected with the variables of the righthand side (computed with
+the function \texttt{int}) with a function that receives as another parameter
+the index of the variable.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq createProjectRules((Rho, Rhos), VarsRHS, N, N') =
+             createProjectRules(Rho, int(getVars(Rho), VarsRHS), N, N', 0)
+             createProjectRules(Rhos, VarsRHS, N, s(N')) .
+  eq createProjectRules(empty, VarsRHS, N, N') = none .
+
+  op createProjectRules : Term TermList Nat Nat Nat -> RuleSet .
+
+***(%
+\end{verbatim}
+}
+
+For each variable, we create a projection function with the name built
+with \texttt{projectFunctionName}, that receives the three indices (the rule index,
+the index of the $\rho$, and the index of the variable).
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq createProjectRules(Rho, empty, N, N', N'') = none .
+  ceq createProjectRules(Rho, (V, Vars), N, N', N'') =
+                      rl Q[Rho] => V [label(Q)] .
+                      createProjectRules(Rho, Vars, N, N', s(N''))
+   if Q := projectFunctionName(N, N', N'') .
+
+  op projectFunctionName : Nat Nat Nat -> Qid .
+  eq projectFunctionName(N, N', N'') =
+      qid("project" + string(N, 10) + "-" + string(N', 10) + "-" + string(N'', 10)) .
+
+***(%
+\end{verbatim}
+}
+
+\item The application of the $\tau$ function is described by \texttt{applyTau}.
+This function changes the arguments that correspond with the $\rho_i$
+for fresh variables, by recursively traversing the term.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op applyTau : Term String -> Term .
+  op applyTau* : TermList String Nat -> TermList .
+
+  eq applyTau(Q[TL], S) = Q[applyTau*(TL, S, 0)] .
+  eq applyTau(T, S) = T [owise] .
+
+  eq applyTau*(empty, S, N) = empty .
+  eq applyTau*((T, TL), S, N) = if substr(S, 0, 1) == "p" and-then rho?(T)
+                                then createFreshVar(N), applyTau*(TL, substr(S, 1, length(S)), s(N))
+                                else T, applyTau*(TL, substr(S, 1, length(S)), N)
+                                fi .
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+
+Finally, we describe the auxiliary functions of the module:
+
+\begin{itemize}
+
+\item The function \texttt{int} calculates the intersection of two lists
+of terms, returning the elements ordered in the same way that the first list.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op int : TermList TermList -> TermList .
+  eq int((T, TL), TL') = if T in TL'
+                         then T, int(TL, TL')
+                         else int(TL, TL')
+                         fi .
+  eq int(empty, TL) = empty .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{in} checks if a term is included in a list.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op _in_ : Term TermList -> Bool .
+  eq T in (T', TL) = if T == T' then true else T in TL fi .
+  eq T in empty = false .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{substitute} recursively substitutes in the term
+using the table given as second argument.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op substitute : Term Table -> Term .
+  op substitute* : TermList Table -> TermList .
+
+  eq substitute(Q[TL], ProjectTable) = Q[substitute*(TL, ProjectTable)] .
+  eq substitute(V, (V |-> T, ProjectTable)) = T .
+  eq substitute(T, ProjectTable) = T [owise] .
+
+  eq substitute*(empty, ProjectTable) = empty .
+  eq substitute*((T, TL), ProjectTable) =
+           substitute(T, ProjectTable), substitute*(TL, ProjectTable) .
+
+***(%
+\end{verbatim}
+}
+
+\item \verb"equivalent?" checks, taking into account the plurality map,
+whether the specification is equivalent
+under both $\alpha$ and $\beta$ plural semantics.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq equivalent?(M) = equivalent?(getRls(M), getOps(M)) .
+
+  op equivalent? : RuleSet OpDeclSet -> Bool .
+  eq equivalent?(none, ODS) = true .
+  ceq equivalent?(R RS, ODS) = ok?(R, S) and equivalent?(RS, ODS)
+   if S := getMetadata(ODS, R) .
+
+  op ok? : Rule String -> Bool .
+  ceq ok?(rl T => T' [AtS] . RS, S) = atMostOne*(Rhos, nubTL(VarsRHS))
+   if Rhos := computeRhos(T, S) /\
+      VarsRHS := getVars(T') .
+  ceq ok?(crl T => T' if COND [AtS] . RS, S) = atMostOne*(Rhos, nubTL(VarsRHS))
+   if Rhos := computeRhos(T, S) /\
+      VarsRHS := getVars(T') .
+  eq ok?(R, S) = true [owise] .
+
+  op atMostOne* : TermList TermList -> Bool .
+  eq atMostOne*(empty, VarsRHS) = true .
+  eq atMostOne*((T, TL), VarsRHS) = atMostOne(T, VarsRHS) and
+                                    atMostOne*(TL, VarsRHS) .
+
+  op atMostOne : Term TermList -> Bool .
+  ceq atMostOne(T, VarsRHS) = | TL | <= 1
+   if Vars := getVars(T) /\
+      TL := Vars /\ VarsRHS .
+
+  op getTopOp : Rule ~> Qid .
+  eq getTopOp(rl T => T' [AtS] .) = getTopOp(T) .
+  eq getTopOp(crl T => T' if COND [AtS] .) = getTopOp(T) .
+
+  op getTopOp : Term ~> Qid .
+  eq getTopOp(Q[TL]) = Q .
+  eq getTopOp(Ct) = getName(Ct) .
+
+  op _/\_ : TermList TermList -> TermList .
+  eq empty /\ TL = empty .
+  eq (T, TL) /\ TL' = if T in TL'
+                      then T
+                      else empty
+                      fi, (TL /\ TL') .
+
+  op _in_ : Term TermList -> Bool .
+  eq T in empty = false .
+  eq T in (T', TL) = if T == T' then true
+                     else T in TL
+                     fi .
+
+  op |_| : TermList -> Nat .
+  eq | empty | = 0 .
+  eq |(T, TL)| = s(| TL |) .
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+
+The module \verb"SINGULAR-TRANSFORMATION" is in charge of performing the transformation
+for singular semantics:
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod SINGULAR-TRANSFORMATION is
+  pr PLURAL-TRANSFORMATION .
+
+***(%
+\end{verbatim}
+}
+
+\begin{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+  var  R : Rule .
+  var  RS : RuleSet .
+  var  AtS : AttrSet .
+  vars T T' : Term .
+  vars Vars FreshVars TL TL' TL'' Assgn : TermList .
+  var  SB : Substitution .
+  var  Q : Qid .
+  var  ODS : OpDeclSet .
+  var  S : String .
+  var  N : Nat .
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+The function \verb"sST*" traverses the rules in the given rule set, applying \verb"sST"
+to each of them with the metadata (indicating the plurality map) associated to this rule:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op sST* : RuleSet OpDeclSet -> RuleSet .
+  eq sST*(R RS, ODS) = sST(R, getMetadata(ODS, R)) sST*(RS, ODS) .
+  eq sST*(none, ODS) = none .
+
+***(%
+\end{verbatim}
+}
+
+The function \verb"sST" implements the $\mathit{sST}$ function defined in Section ... .
+In this function, the singular variables are collected in \verb"Vars", the fresh
+variables are created with \verb"createFreshVarsLet" and kept in \verb"FreshVars",
+the bindings for the let expression are created with \verb"createAssignment" and
+stored in \verb"Assgn", and
+a substitution mapping old variables to the fresh ones is generated with
+\verb"createSubstitution" and will be used to create the body of the let expression:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op sST : Rule String -> Rule .
+  ceq sST(rl T => T' [AtS] ., S) = rl T =>
+                                'let_in_[Assgn, substitute(T', SB)] [nonexec AtS] .
+   if Vars := deleteReps(int(getSingularVars(T, S), getVars(T'))) /\
+      Vars =/= empty /\
+      FreshVars := createFreshVarsLet(size(Vars)) /\
+      Assgn := createAssignment(FreshVars, Vars) /\
+      SB := createSubstitution(FreshVars, Vars) .
+
+***(%
+\end{verbatim}
+}
+
+In case there are no singular arguments, the rules remains unchanged:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq sST(R, S) = R [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\begin{comment}
+
+The function \verb"deleteReps" removes the repeated terms from a term list:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op deleteReps : TermList -> TermList .
+  eq deleteReps((TL, T, TL', T, TL'')) = deleteReps((TL, T, TL', TL'')) .
+  eq deleteReps(TL) = TL [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op createSubstitution : TermList TermList -> Substitution .
+  eq createSubstitution((T, FreshVars), (T', Vars)) = T' <- T ;
+                                                      createSubstitution(FreshVars, Vars) .
+  eq createSubstitution(empty, empty) = none .
+
+  op createAssignment : TermList TermList -> Term .
+  ceq createAssignment(TL, TL') = if size(TL'') == 1
+                                  then TL''
+                                  else '_`,_[TL'']
+                                  fi
+   if TL'' := createAssignmentAux(TL, TL') .
+
+  op createAssignmentAux : TermList TermList -> TermList .
+  eq createAssignmentAux(empty, empty) = empty .
+  eq createAssignmentAux((T, TL), (T', TL')) = '_=_[T, T'], createAssignmentAux(TL, TL') .
+
+  op getSingularVars : Term String -> TermList .
+  eq getSingularVars(Q[TL], S) = getSingularVars*(TL, S) .
+  eq getSingularVars(T, S) = empty [owise] .
+
+  op getSingularVars* : TermList String -> TermList .
+  eq getSingularVars*(empty, S) = empty .
+  eq getSingularVars*((T, TL), S) = if substr(S, 0, 1) == "s"
+                                    then getVars(T)
+                                    else empty
+                                    fi, getSingularVars*(TL, substr(S, 1, length(S))) .
+
+***(%
+\end{verbatim}
+}
+
+The function \verb"createFreshVarsLet" creates a list of fresh variables using the
+natural number received as argument as index:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op createFreshVarsLet : Nat -> TermList .
+  eq createFreshVarsLet(0) = empty .
+  eq createFreshVarsLet(s(N)) = createFreshVarLet(N), createFreshVarsLet(N) .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where \verb"createFreshVarLet" creates a fresh variable:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op createFreshVarLet : Nat -> Variable .
+  eq createFreshVarLet(N) = qid("V@#$L" + string(N, 10) + ":Exp") .
+endfm
+
+***(%
+\end{verbatim}
+}
+
+%)
+
+
+
+
+***(%
+\subsection{Parsing}\label{subsec:parsing}
+
+The module \texttt{PLURAL-PARSING} is in charge of transforming the
+data introduced by the user into Maude terms.
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod SEMANTICS-MAP is
+ pr QID .
+
+ sorts SemanticsMap .
+
+ op mtSM : -> SemanticsMap .
+ op _~>_ : Qid Qid -> SemanticsMap .
+ op _;_ : SemanticsMap SemanticsMap -> SemanticsMap [comm assoc id: mtSM] .
+endfm
+
+fmod PLURAL-PARSING is
+  pr SINGULAR-TRANSFORMATION .
+  pr MODULE-CONSTRAINTS .
+  pr PAIR{Module, QidList} * (sort Pair{Module, QidList} to ParsingResult) .
+  pr PAIR{TermList, OpDeclSet} * (sort Pair{TermList, OpDeclSet} to ExpParsing) .
+  pr SEMANTICS-MAP .
+
+  vars Q Q' : Qid .
+  var  TL : TermList .
+  vars T T' T1 T2 : Term .
+  var  Ct : Constant .
+  var  OP : OpDecl .
+  vars ODS ODS' : OpDeclSet .
+  vars RS RS' RS'' SRS SRS' PRS PRS' : RuleSet .
+  var  R : Rule .
+  var  Ch : Char .
+  vars EqS EqS' : EquationSet .
+  var  Eq : Equation .
+  var  Ty : Type .
+  var  TyL : TypeList .
+  var  AtS : AttrSet .
+  var  V : Variable .
+  vars N N' : Nat .
+  var  QIL : QidList .
+  vars PQS PQS' SQS SQS' QS : QidSet .
+  vars S S' : String .
+  vars TB TB' : SemanticsMap .
+  var  IL : ImportList .
+  var  SS : SortSet .
+  var  SSDS : SubsortDeclSet .
+  var  MAS : MembAxSet .
+
+***(%
+\end{verbatim}
+}
+
+The sort \texttt{ModuleParsing}
+
+{\codesize
+\begin{verbatim}
+%)
+
+  sort ModuleParsing .
+  op <_,_,_> : OpDeclSet RuleSet SemanticsMap -> ModuleParsing .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{processModule} receives two terms representing
+respectively the identifier of a module and its set of rules and
+computes an equivalent Maude module. The identifier is obtained with
+\texttt{downQid}, while the rules are processed with the function
+\texttt{processRules}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op processModule : Term Term -> ParsingResult .
+  ceq processModule('token[T], T') = createModule(Q, fillOps(ODS, TB), RS)
+   if Q := downQid(T) /\
+      < ODS, RS, TB > := processRules(T') .
+
+  op processQModule : Term Term -> ParsingResult .
+  ceq processQModule('token[T], T') = createQModule(Q, fillOps(ODS, TB), RS)
+   if Q := downQid(T) /\
+      < ODS, RS, TB > := processRules(T') .
+
+  op downQid : Constant -> Qid .
+  eq downQid(Ct) =
+     qid(substr(string(getName(Ct)), 1, length(string(getName(Ct))))) .
+
+  op fillOps : OpDeclSet SemanticsMap -> OpDeclSet .
+  eq fillOps(none, TB) = none .
+  eq fillOps(op Q : nil -> Ty [AtS] . ODS, TB) = op Q : nil -> Ty [AtS] . fillOps(ODS, TB) .
+  ceq fillOps(op Q : TyL -> Ty [AtS] . ODS, (Q ~> Q') ; TB) =
+                  op Q : TyL -> Ty [AtS createMetadata(Q', size(TyL))] .
+                  fillOps(ODS, TB)
+   if TyL =/= nil .
+  ceq fillOps(op Q : TyL -> Ty [AtS] . ODS, TB) =
+                  op Q : TyL -> Ty [AtS metadata(repeat("s", size(TyL)))] .
+                  fillOps(ODS, TB)
+   if TyL =/= nil [owise] .
+
+  op createMetadata : Qid Nat -> Attr .
+  eq createMetadata('plural, N) = metadata(repeat("p", N)) .
+  eq createMetadata('singular, N) = metadata(repeat("s", N)) .
+  eq createMetadata(Q, N) = metadata(string(Q)) [owise] .
+
+  op repeat : String Nat -> String .
+  eq repeat(S, 0) = "" .
+  eq repeat(S, s(N)) = S + repeat(S, N) .
+
+***(%
+\end{verbatim}
+}
+
+\texttt{processRules} traverses the rules given by the user, and applies
+the function \texttt{processRule} to their lefthand and righthand sides.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op processRules : Term -> ModuleParsing .
+
+  ceq processRules('__[T, T']) = < ODS ODS', RS RS', (TB ; TB') >
+   if < ODS, RS, TB > := processRules(T) /\
+      < ODS', RS', TB' > := processRules(T') .
+  eq processRules('_->_.[T, T']) = processRule(T, T') .
+  eq processRules('_is_.['token[T], 'token[T']]) = < none, none, (downQid(T) ~> downQid(T')) > .
+
+***(%
+\end{verbatim}
+}
+
+Given two terms representing the two sides of a rule, we must
+parse each one as terms of sort \texttt{Exp} with \texttt{processExp},
+declaring their function symbols if necessary.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op processRule : Term Term -> ModuleParsing .
+  ceq processRule(T, T') = < ODS ODS', rl T1 => T2 [none] ., mtSM >
+   if < T1, ODS > := processExp(T) /\
+      < T2, ODS' > := processExp(T') .
+
+***(%
+\end{verbatim}
+}
+
+If the considered term is a token, we check if it is a natural number, a
+variable (it is a uppercase) or a constant (it is a lowercase), returning
+the corresponding value. In the constant case, we also create a new operator
+without arguments and sort \texttt{Exp}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op processExp : Term -> ExpParsing .
+  ceq processExp('token[T]) =
+                   if downNat(Q) :: Nat then < upTerm(downNat(Q)), none >
+                   else if isVar?(Q)
+                        then < createVar(Q), none >
+                        else < createCons(Q), op Q : nil -> 'Exp [none] . >
+                        fi
+                   fi
+   if Q := downQid(T) .
+
+  op downNat : Qid ~> Nat .
+  eq downNat(Q) = trunc(rat(string(Q), 10)) .
+
+  op createVar : Qid -> Variable .
+  eq createVar(Q) = qid(string(Q) + ":Exp") .
+
+  op createCons : Qid -> Constant .
+  eq createCons(Q) = qid(string(Q) + ".Exp") .
+
+***(%
+\end{verbatim}
+}
+
+\noindent Notice the use of \verb"~>" in the declaration of \texttt{downNat},
+indicating that the function is partial. We have to check in the if
+condition that the sort of the function is \texttt{Nat} to know
+whether it is a number or not.
+
+If the term is a function symbol applied to some parameters, we must
+obtain the name of the function and then obtain the parsed parameters
+with \texttt{processExpList}.
+A new operator is created, with so many arguments of type \texttt{Exp}
+as parameters has the function (computed with \texttt{typeList}) and
+with sort \texttt{Exp}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  ceq processExp('_`(_`)['token[T], T']) =
+             < Q[TL], op Q : typeList(size(TL)) -> 'Exp [none] . ODS >
+   if Q := downQid(T) /\
+      < TL, ODS > := processExpList(T') .
+
+  op typeList : NzNat -> TypeList .
+  eq typeList(1) = 'Exp .
+  eq typeList(s(s(N))) = 'Exp typeList(s(N)) .
+
+  op processExpList : Term -> ExpParsing .
+  ceq processExpList('_`,_[T, T']) = < (T1, TL), ODS ODS' >
+   if < T1, ODS > := processExp(T) /\
+      < TL, ODS' > := processExpList(T') .
+
+***(%
+\end{verbatim}
+}
+
+Finally, the special cases where the function symbol is either
+\verb"_?_" or \verb"if_then_" do not need new operators.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  ceq processExp('_?_[T, T']) = < '_?_[T1, T2], ODS ODS' >
+   if < T1, ODS > := processExp(T) /\
+      < T2, ODS' > := processExp(T') .
+
+  ceq processExp('if_then_[T, T']) = < 'if_then_[T1, T2], ODS ODS' >
+   if < T1, ODS > := processExp(T) /\
+      < T2, ODS' > := processExp(T') .
+  eq processExpList(T) = processExp(T) [owise] .
+
+***(%
+\end{verbatim}
+}
+
+Once the operators declarations and the rules have been extracted from
+the input, they are introduced in a module that defines the rest of the
+syntax, as well as the semantics of the operators \verb"_?_" and
+\verb"if_then_":
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op createModule : Qid OpDeclSet RuleSet -> ParsingResult .
+  ceq createModule(Q, ODS, RS) =
+      < newModule(Q, ODS ODS', EqS, RS'),
+        check-constraints(newModule(Q, ODS ODS', EqS, RS), none, none) >
+   if RS' := sST*(pST*(RS, ODS), ODS) /\
+      EqS := ctermEqs(ODS, RS') /\
+      ODS' := extractMatchProjectOps(RS') .
+
+  op createQModule : Qid OpDeclSet RuleSet -> ParsingResult .
+  ceq createQModule(Q, ODS, RS) =
+      < newModule(Q, ODS, EqS, RS),
+        check-constraints(newModule(Q, ODS, EqS, RS), none, none) >
+   if EqS := ctermEqs(ODS, RS) .
+
+  op newModule : Qid OpDeclSet EquationSet RuleSet -> Module .
+  eq newModule(Q, ODS, EqS, RS) = (mod Q is
+          protecting 'EXT-BOOL .
+          protecting 'QID .
+          sorts 'Exp ; 'Subst ; 'SubstList .
+          subsort 'Qid < 'Exp .
+          subsort 'Nat < 'Exp .
+          subsort 'Subst < 'SubstList .
+          op '_=_ : 'Qid 'Exp -> 'Subst [none] .
+          op '_`,_ : 'SubstList 'SubstList -> 'SubstList [comm assoc] .
+          op '_?_ : 'Exp 'Exp -> 'Exp [assoc] .
+          op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+          op 'let_in_ : 'SubstList 'Exp -> 'Exp [none] .
+          op 'tt : nil -> 'Exp [none] .
+          op 'ff : nil -> 'Exp [none] .
+          op 'cterm : 'Exp -> 'Bool [none] .
+          ODS
+          none *** Membership axioms
+          EqS
+          rl 'if_then_['tt.Exp, 'E:Exp] => 'E:Exp [none] .
+          rl '_?_['E1:Exp, 'E2:Exp] => 'E1:Exp [none] .
+          rl '_?_['E1:Exp, 'E2:Exp] => 'E2:Exp [none] .
+          RS
+       endm) .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where the function \texttt{pST} was described in Section \ref{subsec:pST},
+\texttt{check-constraints} was defined in Section{subsec:aux},
+\texttt{ctermEqs} generates the equations that check if a term is a cterm, and
+\texttt{extractMatchProjectOps} creates the operator
+declarations needed by the projection and match functions:
+
+\begin{itemize}
+
+\item The function \texttt{ctermEqs} generates the equations that check if a expression
+is a cterm. We consider cterms the variables and
+the functions that no appear in the root of a lefthand side whose subterms are
+cterms. Thus, we first traverse the rules, removing from the operator set the
+function symbols in the root of the lefthand sides with the function, and defining
+the function \texttt{cterm} for them as \texttt{false}.
+\texttt{removeOp}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op ctermEqs : OpDeclSet RuleSet -> EquationSet .
+
+  eq ctermEqs(ODS, R RS) = ctermEqs(removeOp(R, ODS), RS)
+                           ctermEq(R) .
+
+  op removeOp : Rule OpDeclSet -> OpDeclSet .
+  op removeOp : Term OpDeclSet -> OpDeclSet .
+  eq removeOp(rl T => T' [AtS] ., ODS) = removeOp(T, ODS) .
+  eq removeOp(Q[TL], op Q : TyL -> 'Exp [AtS] . ODS) = ODS .
+  ceq removeOp(Ct, op Q : TyL -> 'Exp [AtS] . ODS) = ODS
+   if Q := getName(Ct) .
+  eq removeOp(T, ODS) = ODS [owise] .
+
+  op ctermEq : Rule -> EquationSet .
+  eq ctermEq(rl Q[TL] => T' [AtS] .) = eq 'cterm[Q[createFreshVars(size(TL))]] = 'false.Bool [none] . .
+  eq ctermEq(rl Ct => T' [AtS] .) = eq 'cterm[Ct] = 'false.Bool [none] . .
+  eq ctermEq(R) = none [owise] .
+
+***(%
+\end{verbatim}
+}
+
+Once we have traversed all the rules, we check the rest of the operators,
+generating an equation for each one.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq ctermEqs(ODS, none) = ctermEqs(ODS) .
+
+  op ctermEqs : OpDeclSet -> EquationSet .
+  ceq ctermEqs(op Q : nil -> 'Exp [AtS] . ODS) = eq 'cterm[Q'] = 'true.Bool [none] .
+                                                 ctermEqs(ODS)
+   if Q' := qid(string(Q) + ".Exp") .
+  ceq ctermEqs(op Q : TyL -> 'Exp [AtS] . ODS) =
+           eq 'cterm[Q[TL]] = ctermEqs*(TL) [none] .
+           ctermEqs(ODS)
+   if TL := createFreshVars(size(TyL)) [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where the function \verb"ctermEqs*" creates a term
+that checks that all the terms of a list are cterms using the
+predefined function \verb"_and-then_"
+and \texttt{size} calculates the size of a list of types.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op ctermEqs* : TermList -> Term .
+  eq ctermEqs*(T) = 'cterm[T] .
+  eq ctermEqs*((T, TL)) = '_and-then_['cterm[T], ctermEqs*(TL)] .
+
+  op size : TypeList -> Nat .
+  eq size(Ty TyL) = s(size(TyL)) .
+  eq size((nil).TypeList) = 0 .
+
+***(%
+\end{verbatim}
+}
+
+When the equations for all the operators have been produced, we give
+the equations for the predefined operators.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  eq ctermEqs((none).OpDeclSet) =
+                      (eq 'cterm['E:Exp] = 'true.Bool [owise] .
+                       eq 'cterm['N:Nat] = 'true.Bool [none] .
+                       eq 'cterm['ff.Exp] = 'true.Bool [none] .
+                       eq 'cterm['tt.Exp] = 'true.Bool [none] .
+                       eq 'cterm['if_then_['E1:Exp, 'E2:Exp]] = 'false.Bool [none] .
+                       eq 'cterm['_?_['E1:Exp, 'E2:Exp]] = 'false.Bool [none] .) .
+
+***(%
+\end{verbatim}
+}
+
+\item The function \texttt{extractMatchProjectOps} traverses the rules of the module
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op extractMatchProjectOps : RuleSet -> OpDeclSet .
+  eq extractMatchProjectOps(none) = none .
+  eq extractMatchProjectOps(R RS) = extractMatchProjectOp(R)
+                                    extractMatchProjectOps(RS) .
+
+***(%
+\end{verbatim}
+}
+
+and, if the current rule is a projection or a match, uses its name to create a new operator.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op extractMatchProjectOp : Rule -> OpDecl .
+  ceq extractMatchProjectOp(rl Q[TL] => T [AtS] .) = op Q : typeList(size(TL)) -> 'Exp [none] .
+   if projectOrMatch?(Q) .
+  eq extractMatchProjectOp(R) = none [owise] .
+
+  op projectOrMatch? : Qid -> Bool .
+  eq projectOrMatch?(Q) = substr(string(Q), 0, 7) == "project" or-else
+                          substr(string(Q), 0, 5) == "match" .
+
+***(%
+\end{verbatim}
+}
+
+The function \verb"addGen" is in charge of adding the \verb"gen" operators and rules:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op addGen : Module -> Module .
+  ceq addGen(mod Q is IL sorts SS . SSDS ODS MAS EqS RS endm) =
+       mod Q is IL sorts SS . SSDS ODS OP MAS EqS EqS' RS RS' endm
+   if OP := op 'gen : nil -> 'Exp [none] . /\
+      EqS' := (eq 'cterm['gen.Exp] = 'false.Bool [none] .
+               eq 'cterm['s_['V:Exp]] = 'cterm['V:Exp] [none] .) /\
+      RS' := genRls(EqS) .
+
+  op genRls : EquationSet -> RuleSet .
+  ceq genRls(eq 'cterm[Q[TL]] = T [AtS] . EqS) = rl 'gen.Exp => Q[vars2gen(TL)] [none] .
+                                                 genRls(EqS)
+   if Q =/= '_?_ /\
+      Q =/= 'if_then_ .
+  eq genRls(EqS) = (rl 'gen.Exp => '0.Zero [none] .
+                    rl 'gen.Exp => 's_['gen.Exp] [none] .) [owise] .
+
+  op vars2gen : TermList -> TermList .
+  eq vars2gen((T, TL)) = 'gen.Exp, vars2gen(TL) .
+  eq vars2gen(empty) = empty .
+
+  op termWithVariables2Gen : Term -> Term .
+  eq termWithVariables2Gen(Q[TL]) = Q[termWithVariables2Gen*(TL)] .
+  eq termWithVariables2Gen(Ct) = Ct .
+  eq termWithVariables2Gen(V) = 'gen.Exp .
+
+  op termWithVariables2Gen* : TermList -> TermList .
+  eq termWithVariables2Gen*(empty) = empty .
+  eq termWithVariables2Gen*((T, TL)) = termWithVariables2Gen(T), termWithVariables2Gen*(TL) .
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+%)
+
+
+
+
+***(%
+
+\subsection{Natural rewriting}
+
+We describe in this section how the natural rewriting strategy has been implemented.
+
+\subsubsection{Matching definitional trees}\label{subsec:mdt}
+
+We describe in this section the main functions used to define and use
+the Matching Definitional Trees.
+
+\begin{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod LAZY-NAT-LIST is
+ pr NAT-LIST .
+
+ sort LazyNatList .
+ ****
+ *** LazyNatList: lazy in the second argument of cons
+ ****
+ op [] : ->  LazyNatList [ctor] .
+ op _:_ : Nat LazyNatList ->  LazyNatList [ctor strat (1 0)] .
+ op from : Nat -> LazyNatList .
+ op take : Nat LazyNatList -> NatList .
+ op drop : Nat LazyNatList -> LazyNatList .
+
+ vars I N N' : Nat .
+ vars Xs Ys : LazyNatList .
+
+ eq from(N) =  N : from(s(N)) .
+ eq take(0, Xs) = nil .
+ eq take(s(I), N : Xs) = N take(I, Xs) .
+ eq drop(0, Xs) = Xs .
+ eq drop(s(I), N : Xs) = drop(I, Xs) .
+endfm
+
+view LazyNatList from TRIV to LAZY-NAT-LIST is
+  sort Elt to LazyNatList .
+endv
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+The module \verb"MDT" defines the Matching Definitional Tree \cite{escobar04}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod MDT is
+ pr META-LEVEL .
+
+ sorts MDT Forest Branch .
+ subsort MDT < Forest .
+
+***(%
+\end{verbatim}
+}
+
+A \verb"Forest" is just a juxtaposition of trees, where \verb"empty" stands
+for the empty forest.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op empty : -> Forest [ctor] .
+ op __ : Forest Forest -> Forest [ctor assoc id: empty] .
+
+***(%
+\end{verbatim}
+}
+
+We distinguish between the \verb"empty" branch, a branch composed of a list of
+natural numbers (indicating a position) and a forest of definitional trees, and
+the juxtaposition of branches:
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op empty : -> Branch [ctor] .
+ op <_,_> : NatList Forest -> Branch [ctor] .
+ op __ : Branch Branch -> Branch [ctor assoc id: empty] .
+
+***(%
+\end{verbatim}
+}
+
+Finally, we define \verb"or" tree, that receives a forest of
+trees; the \verb"leaf" tree, that receives a term standing for a pattern
+and a rule; and a \verb"branch" tree, which also receives a pattern and
+a branch:
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op or : Forest -> MDT [ctor] .
+ op leaf : Term Rule -> MDT [ctor] .
+ op branch : Term Branch -> MDT [ctor] .
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\begin{comment}
+
+We create views from \verb"TRIV" to \verb"MDT" mapping \verb"Elt"
+to the sorts defined there, in order to instantiate different parameterized modules:
+
+{\codesize
+\begin{verbatim}
+%)
+
+view Mdt from TRIV to MDT is
+  sort Elt to MDT .
+endv
+
+view Branch from TRIV to MDT is
+  sort Elt to Branch .
+endv
+
+view Forest from TRIV to MDT is
+  sort Elt to Forest .
+endv
+
+view Term from TRIV to META-TERM is
+   sort Elt to Term .
+endv
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+\begin{comment}
+
+The module \verb"VAR-POS" defines pairs of variables and
+lists of natural numbers, that are then used to define a view
+from the \verb"TRIV" view:
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod VAR-POS is
+ pr NAT-LIST .
+ pr META-TERM .
+
+ sort VarPos .
+ op _._ : Variable NatList -> VarPos .
+endfm
+
+view VarPos from TRIV to VAR-POS is
+  sort Elt to VarPos .
+endv
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+\subsubsection{Matching tree}
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod MATCHING-TREE is
+ pr MODULE-CONSTRAINTS .
+ pr SET{Pos} .
+ pr MULTISET{Pos} .
+ pr MAP{Qid, Nat} .
+ pr CONVERSION .
+ pr LAZY-NAT-LIST .
+ pr MDT .
+ pr PAIR{LazyNatList, Branch} .
+ pr PAIR{LazyNatList, Mdt} .
+ --- para simular las parejas
+ pr MAP{Forest, LazyNatList} .
+ pr PAIR{RuleSet, RuleSet} .
+ pr MAP{Qid, Mdt} .
+ pr PAIR{LazyNatList, Term} .
+--- Using
+--- pr SET{Var} .
+--- pr SET{Term} .
+
+ ****
+ *** Term manipulation
+ ****
+ *** returns the signature deduced for a given program
+ op signature : RuleSet -> QidSet .
+ *** returns the set of constructor symbols deduced for a given program
+ op cs : RuleSet -> QidSet .
+ *** returns the set of function symbols deduced for a given program
+ op fs : RuleSet -> QidSet .
+   *** returns the set of elements of the signature that are used in the given term
+   op symbols : Term -> QidSet .
+   op symbolss : TermList -> QidSet .
+ op lhs : Rule -> Term .
+ --- for function symbols and constructor symbols present in lhss only!
+ op arity : RuleSet -> Map{Qid, Nat} .
+ --- set of rules for the given function symbol
+ op rulesOf : Qid RuleSet -> RuleSet .
+ op positions : Term -> Set{Pos} .
+    op posI : Nat TermList -> Set{Pos} .
+    op mapAppendSet : NatList Set{Pos} -> Set{Pos} .
+ *** Positions of variables
+ op positionsVar : Term -> Set{Pos} .
+    op filtPosVar : Term Set{Pos} -> Set{Pos} .
+ *** Positions of terms rooted by some element of the signature
+ op positionsSigma : Term -> Set{Pos} .
+ *** Positions of constructor rooted terms
+ op positionsCS : QidSet Term -> Set{Pos} .
+    op filtPosCS : QidSet Term Set{Pos} -> Set{Pos} .
+ op at : Term NatList -> Term .
+ op isPrefix : NatList NatList -> Bool .
+ op minimalPos : Set{Pos} -> Set{Pos} .
+
+ *** indexing from 0
+ op nth : Nat TermList -> Term .
+ op root : Term -> Qid .
+ op replace : Term NatList Term -> Term .
+ op apSubst : Substitution Term -> Term .
+ op flatApp : LazyNatList Map{Qid, Nat} Qid -> Pair{LazyNatList, Term} .
+
+ ****
+ *** Tree construction
+ ****
+ op treeVar : Nat -> Variable .
+ *** Builds a mapping from any function of the program to its corresponding tree
+ op MDTMap : Module -> Map{Qid, Mdt} .
+   **** Builds the tree for a given function symbol
+ op constructMDTF : Module LazyNatList Map{Qid, Nat} Qid RuleSet -> Pair{LazyNatList, Mdt} .
+   **** Builds the tree for a given call pattern
+ op constructMDT : Module LazyNatList Map{Qid, Nat} Term RuleSet -> Pair{LazyNatList, Mdt} .
+
+
+ op disagreementPos : Term Term -> Set{Pos} .
+   op filtDisagree : Term Term Set{Pos} -> Set{Pos} .
+ op DPl : QidSet Term Term -> Set{Pos} .
+ op DPR : RuleSet Term -> Mset{Pos} .
+   op DPRAux : QidSet RuleSet Term -> Mset{Pos} .
+ op DPRm : RuleSet Term -> Set{Pos} .
+   op filtDPRm : Set{Pos} Set{Pos} Mset{Pos} RuleSet QidSet Term -> Set{Pos} .
+
+***(%
+\end{verbatim}
+}
+
+\begin{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+ vars Rs Rs' Ss : RuleSet .
+ var  R : Rule .
+ vars H F C : Qid .
+ vars CS FS : QidSet .
+ vars TL TL' : TermList .
+ vars T T' Pat Pat' Pat'' Left : Term .
+ var  AtS : AttrSet .
+ var  Ct : Constant .
+ var  V V' : Variable .
+ vars I N N' : Nat .
+ var O P : NatList .
+ var Os Ps : Set{Pos} .
+ var Oss Pss : Mset{Pos} .
+ vars Ar Ar' : Map{Qid, Nat} .
+ vars Xs Ys Xs' Ys' : LazyNatList .
+ var Tm : Map{Qid, Mdt} .
+ vars Tree Tree' : MDT .
+ vars For For' : Forest .
+ vars Br Br' : Branch .
+ vars Sigma Theta : Substitution .
+ var M : Module .
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+ --- assuming well formed expressions and programs
+ --- red symbols('s['z.Exp]) .
+ eq symbols(V) = none .
+ eq symbols(Ct) = Ct .
+ eq symbols(H [ TL ]) = H ; symbolss(TL) .
+ eq symbolss(empty) = none .
+ eq symbolss((T, TL)) =  symbols(T) ; symbolss(TL) .
+ --- red signature(rl 'f['X:Exp] => 'h['X:Exp] [none] .) .
+ eq signature(Rs) = signature*(Rs) \ ('let_in_ ; '_`,_ ; '_=_) .
+ op signature* : RuleSet -> QidSet .
+ eq signature*(none) = none .
+ eq signature*((rl T => T' [ AtS ] .) Rs) = symbols(T) ; symbols(T') ; signature*(Rs) .
+ ---  red fs((rl 'f['X:Exp] => 'h['X:Exp] [none] .) (rl 'h['z.Exp] => 's['z.Exp] [none] .)) .
+ eq fs(none) = none .
+ eq fs(R Rs) = root(lhs(R)) ; fs(Rs) .
+ --- red cs((rl 'f['X:Exp] => 'h['X:Exp] [none] .) (rl 'h['z.Exp] => 's['z.Exp] [none] .)) .
+ eq cs(Rs) = signature(Rs) \ fs(Rs) .
+ eq lhs(rl T => T' [ AtS ] .) = T .
+
+ --- red arity(( rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .) (rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .) (rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .)) .
+ eq arity(none) = empty .
+--- eq arity(((rl Ct => T' [ AtS ] .) Rs)) = insert(Ct, 0 , arity(Rs)) .
+ eq arity(((rl Ct => T' [ AtS ] .) Rs)) = arityAux(T', insert(Ct, 0 , arity(Rs))) .
+--- eq arity(((rl (F [ TL ]) => T' [ AtS ] .) Rs)) = arityAux(TL, insert(F , lengthTL(TL) , arity(Rs)) ).
+ eq arity(((rl (F [ TL ]) => T' [ AtS ] .) Rs)) = arityAux(T', arityAux(TL, insert(F , lengthTL(TL) , arity(Rs)) )) .
+  op arityAux : TermList Map{Qid, Nat} -> Map{Qid, Nat} .
+  eq arityAux(empty, Ar) = Ar .
+  eq arityAux((T, TL), Ar) = if isVar(T) then arityAux(TL, Ar)
+                                         else insert(root(T), arityTerm(T), arityAux(TL, arityAux(args(T), Ar)))
+                             fi .
+  op arityTerm : Term -> Nat .
+  eq arityTerm(F [ TL ]) = lengthTL(TL) .
+  eq arityTerm(T) = 0 [owise] .
+  op args : Term -> TermList .
+  eq args(V) = empty .
+  eq args(Ct) = empty .
+  eq args((F [ TL ] )) = TL .
+  op lengthTL : TermList -> Nat .
+  eq lengthTL(empty) = 0 .
+  eq lengthTL((T, TL)) = 1 + lengthTL(TL) .
+ eq rulesOf(F, none) = none .
+ eq rulesOf(F, (rl Ct => T' [ AtS ] .) Rs) = if F == Ct then (rl Ct => T' [ AtS ] .) else none fi rulesOf(F, Rs) .
+ eq rulesOf(F, (rl (H [ TL ]) => T' [ AtS ] .) Rs) = if F == H then (rl (H [ TL ]) => T' [ AtS ] .) else none fi rulesOf(F, Rs) .
+
+
+ --- red mapAppendSet((0 1 nil), ((2 3) , (3 4), empty)) .
+ eq mapAppendSet(O, empty) = empty .
+ eq mapAppendSet(O, (P, Ps)) = (O P) , mapAppendSet(O, Ps) .
+ --- red positions('g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]]) .
+ eq positions(V) = nil .
+ eq positions(Ct) = nil .
+ eq positions(H [ TL ]) = nil , posI(1, TL) .
+    eq posI(I, empty) = empty .
+    eq posI(I, (T, TL)) = mapAppendSet(I, positions(T)) , posI((I + 1), TL) .
+ --- red positionsVar('g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]]) .
+ eq positionsVar(T) = filtPosVar(T, positions(T)) .
+    eq filtPosVar(T, empty) = empty .
+    eq filtPosVar(T, (P, Ps)) = if isVar(at(T, P)) then P  else empty fi , filtPosVar(T, Ps) .
+ ---  red positionsCS('h ; 'c ; 'f, 'g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]]) .
+ eq positionsCS(CS, T) = filtPosCS(CS, T, positions(T)) .
+    eq filtPosCS(CS, T, empty) = empty .
+    eq filtPosCS(CS, T, (P, Ps)) = if (root(at(T, P)) in CS) then P  else empty fi , filtPosCS(CS, T, Ps) .
+ --- red positionsSigma('g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]]) .
+ eq positionsSigma(T) = positions(T) \ positionsVar(T) .
+
+
+ eq nth(0, (T , TL)) = T .
+ eq nth(s(I), (T, TL)) = nth(I, TL) .
+
+ eq isPrefix(nil, P) = true .
+ eq isPrefix((N O), (N P)) = isPrefix(O, P) .
+ eq isPrefix(O,P) = false [owise] .
+
+ eq minimalPos(Os) = minimalPosAux(Os, Os) .
+ op minimalPosAux : Set{Pos} Set{Pos} -> Set{Pos} .
+ eq minimalPosAux(empty, Ps) = empty .
+ eq minimalPosAux((O, Os), Ps) = if minimalIn(O, Ps) then O else empty fi , minimalPosAux(Os, Ps) .
+   op minimalIn : NatList Set{Pos} -> Bool .
+   eq minimalIn(O, empty) = true .
+   eq minimalIn(O, (O, Ps)) = minimalIn(O, Ps) .
+   eq minimalIn(O, (P, Ps)) = if isPrefix(P, O) then false else minimalIn(O, Ps) fi [owise] .
+
+ --- red at('g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]], 2 1) .
+ eq at(T, nil) = T .
+ eq at(H [ TL ], (s(I) P)) = at(nth(I , TL), P) .
+
+ --- red root(at('g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]], 2 1)) .
+ eq root(V) = V .
+ eq root(Ct) = Ct .
+ eq root(H [ TL ]) = H .
+
+ eq replace(T, nil, T') = T' .
+ eq replace(H [ TL ], s(I) O, T') = H [ replaceTL(TL, I, replace(nth(I, TL), O, T')) ] .
+   *** indexing from 0
+   op replaceTL : TermList Nat Term -> TermList .
+   eq replaceTL((T, TL), 0, T') = T' , TL .
+   eq replaceTL((T, TL), s(I), T') = T , replaceTL(TL, I, T') .
+
+ --- red apSubst('X:Exp <- 'tt.Exp ; 'Y:Exp <- 'tt.Exp, 'c ['X:Exp]) .
+ eq apSubst(none, T)= T .
+ eq apSubst((V <- T) ; Sigma , V') = if V == V' then T else apSubst(Sigma , V') fi .
+ eq apSubst(Sigma, Ct) = Ct .
+ eq apSubst(Sigma, H [ TL ]) = H [ mapApSubst(Sigma, TL) ] .
+  op mapApSubst : Substitution TermList -> TermList .
+  eq mapApSubst(Sigma, empty) = empty .
+  eq mapApSubst(Sigma, (T, TL)) = apSubst(Sigma, T) , mapApSubst(Sigma, TL) .
+  --- Usar nubTL para simular cjtos
+  --- For a given set of vars returns the part of the substitution which has its domain contained in that
+  --- set and besides has only variables in its range
+  op getRenaming : TermList Substitution -> Substitution .
+  eq getRenaming(empty, Sigma) = none .
+  eq getRenaming((V, TL), Sigma) = getRenamingVar(V, Sigma) ; getRenaming(TL, Sigma) .
+  op getRenamingVar : Variable Substitution -> Substitution .
+  eq getRenamingVar(V, none) = none .
+  eq getRenamingVar(V, (V <- T) ; Sigma) = if isVar(T) then (V <- T) else none fi .
+  eq getRenamingVar(V, Sigma) = none [owise] .
+
+  --- main: en unifyingRules despues de unificar usar reverseRenaming(getVars(Pat), Sigma,  Left), tb con el lado dcho
+  op reverseRenamingTotal : Substitution Term -> Term .
+  ceq reverseRenamingTotal(Sigma, T) = apSubst(reverseRenamingAux(Theta), apSubst(Sigma, T))
+    if Theta := getRenamingTotal(Sigma) .
+
+  op getRenamingTotal : Substitution -> Substitution .
+  eq getRenamingTotal(none) = none .
+  eq getRenamingTotal((V <- T) ; Sigma) = if isVar(T) then (V <- T) else none fi ; getRenamingTotal(Sigma) .
+
+  op reverseRenaming : TermList Substitution Term -> Term .
+  ceq reverseRenaming(TL, Sigma, T) = apSubst(reverseRenamingAux(Theta), apSubst(Sigma, T))
+    if Theta := getRenaming(nubTL(TL), Sigma) .
+  op reverseRenamingAux : Substitution -> Substitution .
+  eq reverseRenamingAux(none) = none .
+  eq reverseRenamingAux((V <- V') ; Sigma) = (V' <- V) ; reverseRenamingAux(Sigma) .
+
+ eq flatApp(Xs, Ar, H) = if Ar [H] <= 0 then < Xs, H > else < drop(Ar [H] , Xs) , H [mapTreeVars(take(Ar [ H ], Xs))] > fi .
+
+ eq treeVar(I) =  qid("V#@$T" + string(I, 10) + ":Exp") .
+ op nTreeVars : Nat Nat -> TermList .
+ eq nTreeVars(I, 0) = empty .
+ eq nTreeVars(I, s(N)) = treeVar(I), nTreeVars(s(I), N) .
+ --- red mapTreeVars(take(20, from(0))) .
+ op mapTreeVars : NatList -> TermList .
+ eq mapTreeVars(nil) = empty .
+ eq mapTreeVars((I O)) = treeVar(I) , mapTreeVars(O) .
+
+ ---  red disagreementPos('b['ff.Exp,'X:Exp, 'tt.Exp], 'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp]) .
+--- BIGBUG eq disagreementPos(Left, Pat) = filtDisagree(Left, Pat, intersection(positionsSigma(Left), positionsSigma(Pat))) .
+ eq disagreementPos(Left, Pat) = minimalPos(filtDisagree(Left, Pat, intersection(positionsSigma(Left), positions(Pat)))) .
+--- filtDisagree(Left, Pat, intersection(positionsSigma(Left), positions(Pat))) .
+    eq filtDisagree(Left, Pat, empty) = empty .
+    eq filtDisagree(Left, Pat, (P, Ps)) = if root(at(Left, P)) ==  root(at(Pat, P)) then empty else P fi ,  filtDisagree(Left, Pat, Ps) .
+
+ --- red DPl('tt.Exp ; 'ff.Exp, 'b['tt.Exp,'ff.Exp,'X:Exp], 'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp]) .
+ --- red DPl('tt.Exp ; 'ff.Exp, 'b['ff.Exp,'X:Exp, 'tt.Exp], 'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp]) .
+ --- red DPl('tt.Exp ; 'ff.Exp, 'b['X:Exp, 'tt.Exp, 'ff.Exp], 'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp]) .
+--- BIGBUG  ceq DPl(CS, Left, Pat) = if | intersection(Ps, (positionsCS(CS, Pat) , positionsVar(Pat))) | == 0 then Ps else empty fi
+ceq DPl(CS, Left, Pat) = if | intersection(Ps, positionsCS(CS, Pat)) | == 0 then Ps else empty fi
+     if Ps := disagreementPos(Left, Pat) .
+
+ --- red DPR((rl 'b['X:Exp,'t.Exp,'ff.Exp] => 'tt.Exp [none] .) (rl 'b['ff.Exp,'X:Exp,'tt.Exp] => 'tt.Exp [none] .) (rl 'b['tt.Exp,'ff.Exp,'X:Exp] => 'tt.Exp [none] .) ,  'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp] ) .
+ --- red DPR((rl 'b['X:Exp,'t.Exp,'ff.Exp] => 'tt.Exp [none] .) (rl 'b['ff.Exp,'X:Exp,'tt.Exp] => 'tt.Exp [none] .) (rl 'b['tt.Exp,'ff.Exp,'X:Exp] => 'tt.Exp [none] .) (rl 'f['X:Exp] => 'h['X:Exp] [none] .) (rl 'g['X:Exp,'Y:Exp] => 'g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]] [none] .) (rl 'h['z.Exp] => 's['z.Exp] [none] .),  'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp] ) .
+ eq DPR(Rs, Pat) = DPRAux(cs(Rs), Rs, Pat) .
+ eq DPRAux(CS, none, Pat) = emptyMS .
+ eq DPRAux(CS, (rl Left => T [ AtS ] .) Rs, Pat) = if root(Left) == root(Pat) then setToMultiset(DPl(CS, Left, Pat)) else emptyMS fi . DPRAux(CS, Rs, Pat) .
+
+ --- red DPRm((rl 'b['X:Exp,'t.Exp,'ff.Exp] => 'tt.Exp [none] .) (rl 'b['ff.Exp,'X:Exp,'tt.Exp] => 'tt.Exp [none] .) (rl 'b['tt.Exp,'ff.Exp,'X:Exp] => 'tt.Exp [none] .) (rl 'f['X:Exp] => 'h['X:Exp] [none] .) (rl 'g['X:Exp,'Y:Exp] => 'g['h['X:Exp],'g['f['Y:Exp],'Y:Exp]] [none] .) (rl 'h['z.Exp] => 's['z.Exp] [none] .),  'b['b['tt.Exp,'ff.Exp,'tt.Exp],'b['ff.Exp,'tt.Exp,'tt.Exp],'ff.Exp] ) .
+ --- red DPRm( ( rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .) (rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .) (rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .), 'or ['or ['tt.Exp, 'ff.Exp], 'or ['tt.Exp, 'ff.Exp] ]) .
+ ceq DPRm(Rs, Pat) = filtDPRm(Os, Os, Oss, Rs, cs(Rs), Pat)
+   if Oss := DPR(Rs, Pat) /\ Os := multisetToSet(Oss) .
+ eq filtDPRm(empty, Ps, Pss, Rs, CS, Pat) = empty .
+ eq filtDPRm((O , Os), Ps, Pss, Rs, CS, Pat) = if OkDPRm(O, Ps, Pss, Rs, CS, Pat) then O else empty fi , filtDPRm(Os, Ps, Pss, Rs, CS, Pat) .
+    op OkDPRm : NatList Set{Pos} Mset{Pos} RuleSet QidSet Term -> Bool .
+      eq OkDPRm(O, Ps, Pss, none, CS, Pat) = false .
+      eq OkDPRm(O, Ps, Pss, (rl Left => T [ AtS ] .) Rs, CS, Pat) = if O in DPl(CS, Left, Pat)
+                                                                   then if biggerDPRm(O, Ps, Pss, Left)
+                                                                              then true else OkDPRm(O, Ps, Pss, Rs, CS, Pat) fi
+                                                                   else OkDPRm(O, Ps, Pss, Rs, CS, Pat) fi .
+      op biggerDPRm : NatList Set{Pos} Mset{Pos} Term -> Bool .
+       eq biggerDPRm(O, empty, Pss, Left) = true .
+       eq biggerDPRm(O, (P,  Ps), Pss, Left) = if (mult(O, Pss) >= mult(P, Pss) or isVar(at(Left, P)))
+                                                       then biggerDPRm(O, Ps, Pss, Left)
+                                                    else false
+                                               fi  .
+
+
+**** Construyendo el arbol
+ ceq MDTMap(M) = MDTMapAux(M, from(0), fs(Rs), arity(Rs), Rs, empty)
+   if Rs := getRls(M) .
+ op MDTMapAux : Module LazyNatList QidSet Map{Qid, Nat} RuleSet Map{Qid, Mdt} -> Map{Qid, Mdt} .
+ eq MDTMapAux(M, Xs, none, Ar, Rs, Tm) = Tm .
+ ceq MDTMapAux(M, Xs, (F ; FS), Ar, Rs, Tm) = MDTMapAux(M, Ys, FS, Ar, Rs, insert(F, Tree, Tm))
+   if < Ys, Tree > := constructMDTF(M, Xs, Ar, F, Rs) .
+
+   **** Builds the tree for a given function symbol
+ ceq constructMDTF(M, Xs, Ar, F, Rs) = constructMDT(M, Ys, Ar, T, rulesOf(F, Rs))
+   if < Ys, T > := flatApp(Xs, Ar, F) .
+
+   **** Builds the tree for a given call pattern
+--- eq constructMDT(M, Xs, Ar, Pat, none) = < Xs, empty > .
+ ceq constructMDT(M, Xs, Ar, Pat, Rs) =
+    if rsSize(Ss) > 0
+        then constructMDTb(M, Xs, Ar, Pat, Ss, Rs')
+        else constructMDTc(M, Xs, Ar, Pat, Rs)
+    fi
+  if < Ss, Rs' > := matchingRules(M, Pat, Rs) [owise] .
+    op constructMDTb : Module LazyNatList Map{Qid, Nat} Term RuleSet RuleSet -> Pair{LazyNatList, Mdt} .
+    eq constructMDTb(M, Xs, Ar, Pat, Ss, Rs) =
+            if rsSize(Rs) > 0 then constructMDTb1(M, Xs, Ar, Pat, Ss, Rs)
+                              else constructMDTb2(Xs, Pat, Ss)
+            fi [ print "--->constructMDTb, patron " Pat ", matching rules " Ss ", non-mathing rules " Rs ] .
+
+        op constructMDTb1 : Module LazyNatList Map{Qid, Nat} Term RuleSet RuleSet -> Pair{LazyNatList, Mdt} .
+        ceq constructMDTb1(M, Xs, Ar, Pat, Ss, Rs) =  < Ys , or(mapLeaves(Pat, Ss) Tree) >
+         if < Ys , Tree > := constructMDT(M, Xs, Ar, Pat, Rs) .
+
+        op constructMDTb2 : LazyNatList Term RuleSet -> Pair{LazyNatList, Mdt} .
+        eq constructMDTb2(Xs, Pat, Ss) = if rsSize(Ss) > 1 then
+                                            < Xs , or(mapLeaves(Pat, Ss)) >
+                                         else
+                                            < Xs , leaf(Pat, Ss) > fi .
+
+          op mapLeaves : Term RuleSet -> Forest .
+          eq mapLeaves(Pat, none) = empty .
+          eq mapLeaves(Pat, R Rs) =  leaf(Pat, R) mapLeaves(Pat, Rs) .
+
+
+    op constructMDTc : Module LazyNatList Map{Qid, Nat} Term RuleSet -> Pair{LazyNatList, Mdt} .
+    ceq constructMDTc(M, Xs, Ar, Pat, Rs) = < Ys, branch(Pat, Br) >
+      if < Ys , Br > := loopConstructMDTc(M, Xs, Ar, DPRm(Rs, Pat), Pat, Rs) [ print "--->constructMDTc, patron " Pat ", reglas " Rs ] .
+
+      op loopConstructMDTc : Module LazyNatList Map{Qid, Nat} Set{Pos} Term RuleSet -> Pair{LazyNatList, Branch} .
+       eq loopConstructMDTc(M, Xs, Ar, empty, Pat, Rs) = < Xs , empty > .
+       ceq loopConstructMDTc(M, Xs, Ar, (O , Os) , Pat, Rs) = < Xs' , < O , For > Br  >
+---          if (For |->  Ys ) :=  loopPosConstructMDTc(M, Xs, Ar, consAt(Rs, O), O, Pat, Rs)
+                                 --- As we do are one sorted every constructor shares its sort with the others
+          if (For |->  Ys ) :=  loopPosConstructMDTc(M, Xs, Ar, cs(getRls(M)), O, Pat, Rs)
+              /\  < Xs' ,  Br > := loopConstructMDTc(M, Ys, Ar, Os , Pat, Rs) .
+
+      op loopPosConstructMDTc : Module LazyNatList Map{Qid, Nat} QidSet NatList Term RuleSet -> Map{Forest, LazyNatList} .
+      eq loopPosConstructMDTc(M, Xs, Ar, none, O, Pat, Rs) = empty |-> Xs .
+      ceq loopPosConstructMDTc(M, Xs, Ar, (C ; CS), O, Pat, Rs) =
+            if rsSize(Ss) > 0 then loopPosConstructMDTc1(M, Ys, Ar, CS, O, Pat, Rs, Pat', Ss)
+                              else loopPosConstructMDTc2(M, Ys, Ar, CS, O, Pat, Rs)
+            fi
+         if < Ys, T > := flatApp(Xs, Ar, C)
+         /\ Pat' := replace(Pat, O, T)
+         /\ < Ss, Rs' > := unifyingRules(M, Pat', Rs) [ print " loopPosConstructMDTc , patron " Pat' ", constructoras " C " y " CS " y reglas " Rs " unificaron " Ss " y no unificaron " Rs' "\n" ] .
+
+         op loopPosConstructMDTc1 : Module LazyNatList Map{Qid, Nat} QidSet NatList Term RuleSet Term RuleSet -> Map{Forest, LazyNatList} .
+         ceq loopPosConstructMDTc1(M, Ys, Ar, CS, O, Pat, Rs, Pat', Ss) = (Tree For) |-> Xs'
+           if < Ys', Tree > := constructMDT(M, Ys, Ar, Pat', Ss)
+           /\ (For |-> Xs') := loopPosConstructMDTc(M, Ys', Ar, CS, O, Pat, Rs) .
+         op loopPosConstructMDTc2 : Module LazyNatList Map{Qid, Nat} QidSet NatList Term RuleSet -> Map{Forest, LazyNatList} .
+         ceq loopPosConstructMDTc2(M, Ys, Ar, CS, O, Pat, Rs) = For |-> Xs'
+           if (For |-> Xs') := loopPosConstructMDTc(M, Ys, Ar, CS, O, Pat, Rs) [ print " loopPosConstructMDTc , quedan " CS ] .
+
+  op rsSize : RuleSet -> Nat .
+  eq rsSize(none) = 0 .
+  eq rsSize((R Rs)) = 1 + rsSize(Rs) .
+  --- ( Left < Pat, ! Left < Pat )
+  op matchingRules : Module Term RuleSet -> Pair{RuleSet, RuleSet} .
+  eq matchingRules(M, Pat, none) = < none, none > .
+  ceq matchingRules(M, Pat, (rl Left => T' [ AtS ] .) Rs) =
+      if metaMatch(M, Left, Pat, nil, 0) == noMatch
+           then < Rs' , (rl Left => T' [ AtS ] .) Ss >
+           else < (rl Left => T' [ AtS ] .) Rs' , Ss >
+      fi
+    if < Rs' , Ss > := matchingRules(M, Pat, Rs) .
+
+   --- ( Unifying  , ! Unifying )
+   op unifyingRules : Module Term RuleSet -> Pair{RuleSet, RuleSet} .
+   eq unifyingRules(M, Pat, none) = < none, none > .
+   ceq unifyingRules(M, Pat, (rl Left => T' [ AtS ] .) Rs) = < (rl reverseRenamingTotal(Sigma,  Left) => reverseRenamingTotal(Sigma,  T') [ AtS ] .) Rs' , Ss >
+    if { Sigma , I } := metaUnify(M, Left =? Pat, 0, 0)
+    /\ TL := getVars(Left)
+    /\ < Rs' , Ss > := unifyingRules(M, Pat, Rs) [ print "unificando " Left " y " Pat ] .
+
+   ceq unifyingRules(M, Pat, R Rs) = < Rs' , R Ss >
+    if < Rs' , Ss > := unifyingRules(M, Pat, Rs) [owise].
+
+  op consAt : RuleSet NatList -> QidSet .
+  eq consAt(none, O) = none .
+  ceq consAt((rl Left => T' [ AtS ] .) Rs, O) = if isVar(H) then consAt(Rs, O)
+                                                            else (H ; consAt(Rs, O)) fi
+      if H := root(at(Left, O)) .
+
+endfm
+
+***(%
+\end{verbatim}
+}
+
+\subsubsection{Heap}\label{subsubsec:imp:heap}
+
+{\codesize
+\begin{verbatim}
+%)
+
+fmod HEAP is
+ pr META-OPS .
+ pr PAIR{Term, VarPos} .
+ pr PAIR{Nat, TermList} .
+ pr CONVERSION .
+
+***(%
+\end{verbatim}
+}
+
+\begin{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+ vars SB NewSB : Substitution .
+ vars V X Y Z Rp Xp Yp Zp : Variable .
+ vars T T' e : Term .
+ vars TL VL FreshVars : TermList .
+ var  H : Heap .
+ vars N N' i : Nat .
+ vars o q : NatList .
+ var  Q : Qid .
+ vars FS QS : QidSet .
+ var  Ct : Constant .
+ var  VP : VarPos .
+ var  M : Module .
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+A \verb"Heap"
+
+{\codesize
+\begin{verbatim}
+%)
+
+ sort Heap .
+ op [_,_,_,_] : Substitution Variable QidSet Nat -> Heap [ctor] .
+
+ op _[_] : Heap Variable ~> Term .
+ eq [Xp <- T ; SB, Rp, FS, N][Xp] = T .
+
+ op getRootValue : Heap -> Term .
+ eq getRootValue([Rp <- T ; SB, Rp, FS, N]) = T .
+
+ op getFS : Heap -> QidSet .
+ eq getFS([SB, Rp, FS, N]) = FS .
+
+ op getRootVar : Heap -> Variable .
+ eq getRootVar([SB, Rp, FS, N]) = Rp .
+
+ op heapVar : Nat -> Variable .
+ eq heapVar(N) = qid("$@%&H" + string(N, 10) + ":Exp") .
+
+ op heapVars : Nat Nat -> TermList .
+ eq heapVars(N, 1) = heapVar(N) .
+ eq heapVars(N, s(s(N'))) = heapVar(N), heapVars(s(N), s(N')) .
+
+ op pvar? : Term -> Bool .
+ eq pvar?(X) = substr(string(getName(X)), 0, 5) == "$@%&H" .
+ eq pvar?(T) = false [owise] .
+
+ op fvar? : Variable -> Bool .
+ eq fvar?(X) = not pvar?(X) .
+
+ op Gamma* : Heap Variable -> Pair{Term, VarPos} .
+ ceq Gamma*(H, Xp) = < H[Xp], Xp . nil >
+  if not pvar?(H[Xp]) .
+ eq Gamma*(H, Xp) = Gamma*(H, H[Xp]) [owise] .
+
+ sort HeapTriple .
+ op (_,_,_) : Heap Term VarPos -> HeapTriple .
+
+ op _|_ : Heap VarPos -> Pair{Term, VarPos} .
+ op _|_ : HeapTriple NatList -> Pair{Term, VarPos} .
+
+ eq H | Xp . o = (H, H[Xp], Xp . nil) | o .
+ ceq (H, e, Xp . q) | nil = Gamma*(H, e)
+  if pvar?(e) .
+ eq (H, e, Xp . q) | nil = < e, Xp . q > .
+ ceq (H, Q[TL], Xp . q) | i o = (H, e, Zp . nil) | o
+  if Yp := get(TL, i) /\
+     pvar?(Yp) /\
+     < e, Zp . nil > := Gamma*(H, Yp) .
+ eq (H, Q[TL], Xp . q) | i o = (H, get(TL, i), Xp . q i) | o [owise] .
+
+ op unravel : Heap Term -> Term .
+ ceq unravel(H, X) = X
+  if fvar?(X) .
+ ceq unravel(H, Xp) = unravel(H, H[Xp])
+  if pvar?(Xp) .
+ eq unravel(H, Q[TL]) = Q[unravel*(H, TL)] .
+ eq unravel(H, Ct) = Ct .
+
+ ceq [bindC1] : [Xp <- Ct ; SB, Rp, FS, N] = [substitute(SB, Xp, Ct), Rp, FS, N]
+  if Xp =/= Rp /\
+     not in?(Ct, FS) .
+
+ ceq [bindC2] : [Xp <- Q[TL] ; SB, Rp, FS, N] =
+                             [substitute(SB ; NewSB, Xp, Q[FreshVars]), Rp, FS, N + N']
+  if Xp =/= Rp /\
+     not in?(Q, FS) /\
+     N' := size(TL) /\
+     FreshVars := heapVars(N, N') /\
+     NewSB := newSubs(FreshVars, TL) .
+
+ ceq [bindV] : [Xp <- Z ; SB, Rp, FS, N] = [substitute(SB, Xp, Z), Rp, FS, N]
+  if Xp =/= Rp .
+
+ ceq [trash] : [Xp <- e ; SB, Rp, FS, N] = [SB, Rp, FS, N]
+  if TL := (getVars(SB), Rp) /\
+     not TL contains Xp .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{size} computes the length of a term list.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op size : TermList -> Nat .
+ eq size((T, TL)) = s(size(TL)) .
+ eq size(empty) = 0 .
+
+ op newSubs : TermList TermList ~> Substitution .
+ eq newSubs(empty, empty) = none .
+ eq newSubs((V, VL), (T, TL)) = V <- T ; newSubs(VL, TL) .
+
+ op leftFR : Module Heap Variable -> Pair{Term, VarPos} .
+ op leftFR : Module Heap Term VarPos -> Pair{Term, VarPos} .
+
+ ceq leftFR(M, H, Rp) = leftFR(M, H, e, VP)
+  if < e, VP > := Gamma*(H, Rp) .
+ ceq leftFR(M, H, Yp, VP) = leftFR(M, H, Yp)
+  if pvar?(Yp) .
+ eq leftFR(M, [SB, Rp, Ct ; FS, N], Ct, VP) = < Ct, VP > .
+ eq leftFR(M, [SB, Rp, Q ; FS, N], Q[TL], VP) = < Q[TL], VP > .
+ ceq leftFR(M, H, Q[TL], Xp . o) = leftFR(M, H, T, Xp . o i)
+  if < i, T > := firstNotCtermUnravel(M, H, TL, 1) [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where  \texttt{firstNotCtermUnravel} traverses a list of terms
+looking for the first one that, once unraveled, is a cterm, checked with
+the (meta)function \texttt{cterm} defined in Section \ref{subsec:parsing}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op firstNotCtermUnravel : Module Heap TermList Nat -> Pair{Nat, TermList} .
+ eq firstNotCtermUnravel(M, H, empty, N) = < 1, empty > .
+ eq firstNotCtermUnravel(M, H, (T, TL), N) =
+             if getTerm(metaReduce(M, 'cterm[unravel(H, T)])) == 'true.Bool
+             then firstNotCtermUnravel(M, H, TL, s(N))
+             else < N, T >
+             fi .
+
+ op unravel* : Heap TermList -> TermList .
+ eq unravel*(H, empty) = empty .
+ eq unravel*(H, (T, TL)) = unravel(H, T), unravel*(H, TL) .
+
+ op get : TermList Nat ~> Term .
+ eq get((T, TL), 1) = T .
+ eq get((T, TL), N) = get(TL, sd(N, 1)) [owise] .
+
+ op in? : Qid QidSet -> Bool .
+ eq in?(Q, Q ; QS) = true .
+ eq in?(Q, QS) = false [owise] .
+
+ op hasProdVars : Term -> Bool .
+ op hasProdVars* : TermList -> Bool .
+
+ eq hasProdVars*(empty) = false .
+ eq hasProdVars*((T, TL)) = hasProdVars(T) or-else hasProdVars*(TL) .
+endfm
+
+view PosRulePair from TRIV to PAIR{VarPos, RuleSet} is
+ sort Elt to Pair{VarPos, RuleSet} .
+endv
+
+fmod SEARCH-NODE is
+ pr HEAP .
+
+ sort SearchNode .
+
+ op <_,_,_> : Heap Nat TermList -> SearchNode [ctor] .
+ op <_,_> : Term Nat -> SearchNode [ctor] .
+endfm
+
+view SearchNode from TRIV to SEARCH-NODE is
+ sort Elt to SearchNode .
+endv
+
+view Heap from TRIV to HEAP is
+ sort Elt to Heap .
+endv
+
+view Substitution from TRIV to META-TERM is
+ sort Elt to Substitution .
+endv
+
+***(%
+\end{verbatim}
+}
+
+The module \texttt{NATURAL-REWRITING} uses the matching definitional trees
+described above to evaluate a term.
+
+{\codesize
+\begin{verbatim}
+%)
+
+view Pos4Term from TRIV to NAT-LIST is
+ sort Elt to NatList .
+endv
+
+view PosRulePair4Term from TRIV to PAIR{Pos4Term, RuleSet} is
+ sort Elt to Pair{Pos4Term, RuleSet} .
+endv
+
+fmod NATURAL-REWRITING-TERMS is
+ pr MATCHING-TREE .
+ pr LIST{PosRulePair4Term} .
+ pr LIST{SearchNode} .
+ pr PAIR{Nat, TermList} .
+
+ var  M : Module .
+ vars Q Q' : Qid .
+ vars TL TL' TL'' P : TermList .
+ vars F F' : Forest .
+ vars T T' : Term .
+ var  Ct : Constant .
+ var  R : Rule .
+ vars RS RS' : RuleSet .
+ var  AtS : AttrSet .
+ var  N : Nat .
+ vars NL NL' : NatList .
+ var  A : MDT .
+ var  B : Branch .
+ var  MQM : Map{Qid, Mdt} .
+ var  LPRP : List{PosRulePair4Term} .
+ var  LSN : List{SearchNode} .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{natNext} computes, given a module, a term,
+and a forest of matching definitional trees, the list of possible
+results obtained by evaluating the demanded positions of the term.
+In the first case, if the term to be evaluated is a constant, we
+look for the possible rules that can be applied to it with the
+function \texttt{mt} \cite{escobar04}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op natNext : Module Term -> TermList .
+ eq natNext(M, T) = natNext(M, T, MDTMap(M)) .
+
+ op natNext : Module Term Map{Qid, Mdt} -> TermList .
+ ceq natNext(M, Ct, MQM) = applyIn(M, Ct, LPRP)
+  if LPRP := mt(M, Ct, MQM[Ct], MQM) .
+
+***(%
+\end{verbatim}
+}
+
+If the function symbol is a constructor, we look for the first argument
+that is not a cterm\footnote{If the term is a cterm itself, then no
+further evaluation is possible and the case is treated by the \texttt{otherwise}
+equation below.}, apply \texttt{natNext} to it and the subterm is replaced by
+each one of the result list.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ ceq natNext(M, Q[TL], MQM) = TL''
+  if ctor(getRls(M), Q) /\
+     < N, T > := firstNotCterm(M, TL, 1) /\
+     TL' := natNext(M, T, MQM) /\
+     TL'' := replace(Q[TL], N, TL') .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where the auxiliar functions are defined as follows:
+
+\begin{itemize}
+
+\item The function \texttt{ctor} checks that the term does not appear
+as top symbol of a lefthand side.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op ctor : RuleSet Qid -> Bool .
+ eq ctor(rl Q[TL] => T [AtS] . RS, Q) = false .
+ eq ctor(rl Ct => T [AtS] . RS, Ct) = false .
+*** eq ctor(rl Ct => T [AtS] . RS, Q) = Q == getName(Ct) .
+ eq ctor(RS, Q) = true [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{firstNotCterm} traverses a list of term looking for the first
+one that is a cterm, checked with the (meta)function \texttt{cterm} defined
+in Section \ref{subsec:parsing}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op firstNotCterm : Module TermList Nat -> Pair{Nat, TermList} .
+ eq firstNotCterm(M, empty, N) = < 1, empty > .
+ eq firstNotCterm(M, (T, TL), N) = if getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool
+                                   then firstNotCterm(M, TL, s(N))
+                                   else < N, T >
+                                   fi .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{replace} changes the subterm indicated by the index by each one of
+the terms given list.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op replace : Term Nat TermList -> TermList .
+ op replace* : TermList Nat Term -> TermList .
+
+ eq replace(Q[TL], N, (T, TL')) = Q[replace*(TL, N, T)], replace(Q[TL], N, TL') .
+ eq replace(Q[TL], N, empty) = empty .
+
+ eq replace*(empty, N, T) = empty .
+ eq replace*((T, TL), s(s(N)), T') = T, replace*(TL, s(N), T') .
+ eq replace*((T, TL), 1, T') = T', TL .
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+
+If the term has a function symbol at top we compute the list of
+positions and rules that can be applied by means of the function
+\texttt{mt}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ ceq natNext(M, Q[TL], MQM) = applyIn(M, Q[TL], LPRP)
+  if not ctor(getRls(M), Q) /\
+     LPRP := mt(M, Q[TL], MQM[Q], MQM) .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where \texttt{applyIn} applies the rules given in the list in
+the corresponding positions.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op applyIn : Module Term List{PosRulePair4Term} -> TermList .
+ op applyIn : Module Term NatList Qid -> Term .
+ op applyIn* : Module TermList NatList Qid -> TermList .
+
+ eq applyIn(M, T, < NL, R > LPRP) = applyIn(M, T, NL, getLabel(R)), applyIn(M, T, LPRP) .
+ eq applyIn(M, T, nil) = empty .
+
+ eq applyIn(M, T, nil, Q) = getTerm(metaXapply(M, T, Q, none, 0, unbounded, 0)) .
+ eq applyIn(M, Q[TL], NL, Q') = Q[applyIn*(M, TL, NL, Q')] .
+
+ eq applyIn*(M, (T, TL), 1 NL, Q) = applyIn(M, T, NL, Q), TL .
+ eq applyIn*(M, (T, TL), s(s(N)) NL, Q) = T, applyIn*(M, TL, s(N) NL, Q) .
+
+ op getLabel : Rule ~> Qid .
+ eq getLabel(rl T => T' [label(Q) AtS] .) = Q .
+
+***(%
+\end{verbatim}
+}
+
+In other case, the term cannot evolve and the functions returns the empty list
+of terms.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ eq natNext(M, T, MQM) = empty [owise] .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{mt} \cite{escobar04} returns a list of pairs with the
+needed positions and the rules that must be applied in each of them. If the
+tree is a single leaf, the rule in this leaf must be applied at top.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op mt : Module Term MDT Map{Qid, Mdt} -> List{PosRulePair4Term} .
+ eq mt(M, T, leaf(T', R), MQM) = < nil, R > .
+
+***(%
+\end{verbatim}
+}
+
+If the tree is an or node, we check all the possible results from the forest
+with the function \texttt{allRulesOr}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ eq mt(M, T, or(F), MQM) = allRulesOr(M, T, F, MQM) .
+
+***(%
+\end{verbatim}
+}
+
+If the tree is a branch node, one of the subterms in the indicated
+positions of the term has a constructor symbol at top, and the pattern
+of at least one of the trees corresponding to this position matches the
+subterm, then we continue with these trees.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ ceq mt(M, T, branch(T', B), MQM) = mt*(M, T, F, MQM)
+  if < NL, F > := firstCtor(M, T, B) .
+
+ op mt* : Module Term Forest Map{Qid, Mdt} -> List{PosRulePair4Term} .
+ eq mt*(M, T, empty, MQM) = nil .
+ eq mt*(M, T, A F, MQM) = mt(M, T, A, MQM) mt*(M, T, F, MQM) .
+
+***(%
+\end{verbatim}
+}
+
+In other case, the functions selects the first position indicated by the tree,
+and continues the search with this term, composing the resulting positions with
+the function \texttt{newList}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ ceq mt(M, T, branch(T', < NL, F > B), MQM) = newList(NL, LPRP)
+  if empty == firstCtor(M, T, B) /\
+     LPRP := mt(M, getTerm(T, NL), MQM[root(getTerm(T, NL))], MQM) .
+ eq mt(M, T, A, MQM) = nil [owise] .
+
+ op newList : NatList List{PosRulePair4Term} -> List{PosRulePair4Term} .
+ eq newList(NL, nil) = nil .
+ eq newList(NL, < NL', R > LPRP) = < NL NL', R > newList(NL, LPRP) .
+
+***(%
+\end{verbatim}
+}
+
+
+
+{\codesize
+\begin{comment}
+%)
+
+ op allRulesOr : Module Term Forest Map{Qid, Mdt} -> List{PosRulePair4Term} .
+ eq allRulesOr(M, T, empty, MQM) = nil .
+ eq allRulesOr(M, T, A F, MQM) = mt(M, T, A, MQM) allRulesOr(M, T, F, MQM) .
+
+ op firstCtor : Module Term Branch -> Branch .
+ eq firstCtor(M, T, empty) = empty .
+ ceq firstCtor(M, T, < NL, F > B) = < NL, F' >
+  if ctor(getRls(M), root(getTerm(T, NL))) /\
+     F' := getMatchs(M, T, F) /\
+     F' =/= empty .
+ eq firstCtor(M, T, < NL, F > B) = firstCtor(M, T, B) [owise] .
+
+ op getMatchs : Module Term Forest -> Forest .
+ eq getMatchs(M, T, empty) = empty .
+ eq getMatchs(M, T, A F) = if metaMatch(M, pattern(A), T, nil, 0) =/= noMatch
+                           then A
+                           else empty
+                           fi
+                           getMatchs(M, T, F) .
+
+ op getTerm : Term NatList -> Term .
+ eq getTerm(T, nil) = T .
+ eq getTerm(Q[TL], N NL) = getTerm*(TL, N NL) .
+
+ op getTerm* : TermList NatList -> Term .
+ eq getTerm*((T, TL), 1 NL) = getTerm(T, NL) .
+ eq getTerm*((T, TL), s(s(N)) NL) = getTerm*(TL, s(N) NL) .
+
+ op pattern : MDT -> Term .
+ eq pattern(leaf(T, R)) = T .
+ eq pattern(or(A F)) = pattern(A) .
+ eq pattern(branch(T, B)) = T .
+
+***(%
+\end{comment}
+}
+
+Finally, another function \verb"natNext", that only receives a
+module and the term to be reduced, invokes the function \verb"natNext"
+computing first the definitional trees with \verb"MDTMap":
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op natNext : Module Term -> TermList .
+ eq natNext(M, T) = natNext(M, T, MDTMap(M)) .
+endfm
+
+fmod NATURAL-REWRITING is
+ pr PAIR{Substitution, Substitution} * (sort Pair{Substitution, Substitution} to SubsPair) .
+ pr NATURAL-REWRITING-TERMS .
+ pr LIST{PosRulePair} .
+ pr LIST{SearchNode} .
+ pr MATCHING-TREE .
+ pr LIST{Heap} .
+ pr HEAP .
+
+***(%
+\end{verbatim}
+}
+
+\begin{comment}
+
+{\codesize
+\begin{verbatim}
+%)
+
+ var  M : Module .
+ vars Q Q' : Qid .
+ vars TL TL' TL'' P FreshVars : TermList .
+ vars F F' : Forest .
+ vars T T' T1 T2 T3 T4 E : Term .
+ var  Ct : Constant .
+ var  R : Rule .
+ vars RS RS' : RuleSet .
+ var  AtS : AttrSet .
+ vars N N' : Nat .
+ vars NL NL' : NatList .
+ var  A : MDT .
+ var  B : Branch .
+ var  MQM : Map{Qid, Mdt} .
+ var  LPRP : List{PosRulePair} .
+ var  LSN : List{SearchNode} .
+ vars VP VP' : VarPos .
+ vars H H' : Heap .
+ vars Rp V : Variable .
+ var  FS : QidSet .
+ vars SB SB' SB1 SB2 : Substitution .
+ var  LH : List{Heap} .
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+The function \texttt{natNext} computes, given a module, a term,
+and a forest of matching definitional trees, the list of possible
+results obtained by evaluating the demanded positions of the term.
+In the first case, if the term to be evaluated is a constant, we
+look for the possible rules that can be applied to it with the
+function \texttt{mt} \cite{escobar04}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op natNext : Module Heap Map{Qid, Mdt} -> List{Heap} .
+ ceq natNext(M, H, MQM) = applyIn(M, H, LPRP)
+  if < T, VP > := leftFR(M, H, getRootVar(H)) /\
+     LPRP := mt(M, H, VP, T, MQM[root(T)], MQM) .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where the auxiliar functions are defined as follows:
+
+\begin{itemize}
+
+\item The function \texttt{ctor} checks that the term does not appear
+as top symbol of a lefthand side.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op ctor : RuleSet Qid -> Bool .
+ eq ctor(rl Q[TL] => T [AtS] . RS, Q) = false .
+ eq ctor(rl Ct => T [AtS] . RS, Ct) = false .
+ eq ctor(RS, Q) = true [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{firstNotCterm} traverses a list of terms looking for the first
+one that, once unraveled, is a cterm, checked with the (meta)function
+\texttt{cterm} defined in Section \ref{subsec:parsing}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op firstNotCterm : Module TermList Nat -> Pair{Nat, TermList} .
+ eq firstNotCterm(M, empty, N) = < 1, empty > .
+ eq firstNotCterm(M, (T, TL), N) = if getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool
+                                   then firstNotCterm(M, TL, s(N))
+                                   else < N, T >
+                                   fi .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{applyIn} applies the rules given in the list in
+the corresponding positions.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op applyIn : Module Heap List{PosRulePair} -> List{Heap} .
+ op applyIn : Module Term NatList Qid -> Term .
+ op applyIn* : Module TermList NatList Qid -> TermList .
+
+ eq applyIn(M, H, nil) = nil .
+ ceq applyIn(M, H, < VP, rl T => 'let_in_[T1, T2] [AtS] . > LPRP) = H' applyIn(M, H, LPRP)
+  if < T', V . NL > := H | VP /\
+     [SB ; V <- E, Rp, FS, N] := H /\
+     SB' := metaMatch(M, T, T', nil, 0) /\
+     N' := neededVars(T1) /\
+     FreshVars := heapVars(N, N') /\
+     < SB1, SB2 > := createAssignmentLet(FreshVars, T1,  SB') /\
+     T3 := replace(H[V], NL, substitute(T2, SB' ; SB2)) /\
+     H' := [SB ; SB1 ; V <- T3, Rp, FS, N + N'] .
+
+ op replace : Term NatList Term -> Term .
+ eq replace(T, nil, T') = T' .
+ eq replace(Q[TL], NL, T) = Q[replace*(TL, NL, T)] [owise] .
+
+ op replace* : TermList NatList Term -> TermList .
+ eq replace*(empty, NL, T) = empty .
+ eq replace*((T, TL), 1 NL, T') = replace(T, NL, T'), TL .
+ eq replace*((T, TL), s(N) NL, T') = T, replace*(TL, N NL, T') [owise] .
+
+ op neededVars : Term ~> Nat .
+ eq neededVars('_=_[TL]) = 1 .
+ eq neededVars('_`,_[TL]) = size(TL) .
+
+ op createAssignmentLet : TermList Term Substitution ~> SubsPair .
+ op createAssignmentLetAux : TermList TermList Substitution ~> SubsPair .
+
+ eq createAssignmentLet(V, '_=_[T1, T2], SB) = < V <- substitute(T2, SB), T1 <- V ; SB > .
+ eq createAssignmentLet(FreshVars, '_`,_[TL], SB) = createAssignmentLetAux(FreshVars, TL, SB) .
+
+ ceq createAssignmentLetAux((V, FreshVars), ('_=_[T1, T2], TL), SB) =
+                                    < V <- substitute(T2, SB) ; SB1, T1 <- V ; SB2 >
+  if < SB1, SB2 > := createAssignmentLetAux(FreshVars, TL, SB) .
+ eq createAssignmentLetAux(empty, empty, SB) = < none, SB > .
+
+ op getLabel : Rule ~> Qid .
+ eq getLabel(rl T => T' [label(Q) AtS] .) = Q .
+
+ ceq applyIn(M, H, < VP, rl T => T' [AtS] . > LPRP) = H' applyIn(M, H, LPRP)
+  if < T1, V . NL > := H | VP /\
+     [SB ; V <- E, Rp, FS, N] := H /\
+     SB' := metaMatch(M, T, T1, nil, 0) /\
+     T3 := replace(H[V], NL, substitute(T', SB')) /\
+     H' := [SB ; V <- T3, Rp, FS, N] [owise] .
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+
+In other case, the term cannot evolve and the functions returns the empty list
+of terms.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ eq natNext(M, H, MQM) = nil [owise] .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{mt} \cite{escobar04} returns a list of pairs with the
+needed positions and the rules that must be applied in each of them. If the
+tree is a single leaf, the rule in this leaf must be applied at top.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op mt : Module Heap VarPos Term MDT Map{Qid, Mdt} -> List{PosRulePair} .
+ eq mt(M, H, VP, T, leaf(T', R), MQM) = < VP, R > .
+
+***(%
+\end{verbatim}
+}
+
+If the tree is an or node, we check all the possible results from the forest
+with the function \texttt{allRulesOr}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ eq mt(M, H, VP, T, or(F), MQM) = allRulesOr(M, H, VP, T, F, MQM) .
+
+***(%
+\end{verbatim}
+}
+
+If the tree is a branch node, one of the subterms in the indicated
+positions of the term has a constructor symbol at top, and the pattern
+of at least one of the trees corresponding to this position matches the
+subterm, then we continue with these trees.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ ceq mt(M, H, VP, T, branch(T', B), MQM) = mt*(M, H, VP, T, F, MQM)
+  if < NL, F > := firstCtor(M, H, VP, T, B) .
+
+ op mt* : Module Heap VarPos Term Forest Map{Qid, Mdt} -> List{PosRulePair} .
+ eq mt*(M, H, VP, T, empty, MQM) = nil .
+ eq mt*(M, H, VP, T, A F, MQM) = mt(M, H, VP, T, A, MQM) mt*(M, H, VP, T, F, MQM) .
+
+***(%
+\end{verbatim}
+}
+
+In other case, the functions selects the first position indicated by the tree,
+and continues the search with this term, composing the resulting positions with
+the function \texttt{newList}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ ceq mt(M, H, VP, T, branch(T', < NL, F > B), MQM) = LPRP
+  if empty == firstCtor(M, H, VP, T, B) /\
+     < T1, VP' > := (H, T, VP) | NL /\
+     LPRP := mt(M, H, VP', T1, MQM[root(T1)], MQM) .
+ eq mt(M, H, VP, T, A, MQM) = nil [owise] .
+
+***(%
+\end{verbatim}
+}
+
+
+
+{\codesize
+\begin{comment}
+%)
+
+ op allRulesOr : Module Heap VarPos Term Forest Map{Qid, Mdt} -> List{PosRulePair} .
+ eq allRulesOr(M, H, VP, T, empty, MQM) = nil .
+ eq allRulesOr(M, H, VP, T, A F, MQM) = mt(M, H, VP, T, A, MQM)
+                                        allRulesOr(M, H, VP, T, F, MQM) .
+
+ op firstCtor : Module Heap VarPos Term Branch -> Branch .
+ eq firstCtor(M, H, VP, T, empty) = empty .
+ ceq firstCtor(M, H, VP, T, < NL, F > B) = < NL, F' >
+  if < T', VP' > := (H, T, VP) | NL /\
+     ctor(getRls(M), root(T')) /\
+     F' := getMatchs(M, H, T, F) /\
+     F' =/= empty .
+ eq firstCtor(M, H, VP, T, < NL, F > B) = firstCtor(M, H, VP, T, B) [owise] .
+
+ op getMatchs : Module Heap Term Forest -> Forest .
+ eq getMatchs(M, H, T, empty) = empty .
+ eq getMatchs(M, H, T, A F) = if metaMatch(M, pattern(A), unravel(H, T), nil, 0) == noMatch
+                              then empty
+                              else A
+                              fi
+                              getMatchs(M, H, T, F) .
+
+ op getTerm : Term NatList -> Term .
+ eq getTerm(T, nil) = T .
+ eq getTerm(Q[TL], N NL) = getTerm*(TL, N NL) .
+
+ op getTerm* : TermList NatList -> Term .
+ eq getTerm*((T, TL), 1 NL) = getTerm(T, NL) .
+ eq getTerm*((T, TL), s(s(N)) NL) = getTerm*(TL, s(N) NL) .
+
+ op pattern : MDT -> Term .
+ eq pattern(leaf(T, R)) = T .
+ eq pattern(or(A F)) = pattern(A) .
+ eq pattern(branch(T, B)) = T .
+
+***(%
+\end{comment}
+}
+
+The sort \texttt{Strategy} distinguishes the two possible strategies:
+depth-first and breadth-first.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ sort Strategy .
+ ops depth breadth : -> Strategy [ctor] .
+
+***(%
+\end{verbatim}
+}
+
+The function \texttt{evaluate} receives a module, forest of matching definitional
+trees, a list of nodes, a list of results already obtained and a strategy,
+and return another list of nodes. The interpretation of these list of nodes depends
+on the strategy selected: if we use the depth-first strategy we consider it as a
+stack, while if we use the breadth first strategy we consider it as a queue.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op evaluate : Module Map{Qid, Mdt} List{SearchNode} TermList Strategy -> List{SearchNode} .
+ eq evaluate(M, MQM, LSN, TL, depth) = developD(M, MQM, LSN, TL) .
+ eq evaluate(M, MQM, LSN, TL, breadth) = developW(M, MQM, LSN, TL) .
+
+***(%
+\end{verbatim}
+}
+
+The depth-first search is performed by \texttt{developD}. While the depth is bigger
+than 0 it develops the first term in the stack and pushes the resultant terms. The
+search finishes when it finds a cterm or the stack is empty.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op developD : Module Map{Qid, Mdt} List{SearchNode} TermList -> List{SearchNode} .
+ eq developD(M, MQM, nil, TL) = nil .
+ ceq developD(M, MQM, < H, 0, P > LSN, TL) = developD(M, MQM, LSN, TL)
+  if T := unravel(H, getRootValue(H)) /\
+     getTerm(metaReduce(M, 'cterm[T])) == 'false.Bool .
+ ceq developD(M, MQM, < H, N, P > LSN, TL) = < H, N, P > LSN
+  if T := unravel(H, getRootValue(H)) /\
+     getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool /\
+     not TL contains T .
+ ceq developD(M, MQM, < H, N, P > LSN, TL) = developD(M, MQM, LSN, TL)
+  if T := unravel(H, getRootValue(H)) /\
+     TL contains T .
+ ceq developD(M, MQM, < H, s(N), P > LSN, TL) = developD(M, MQM, putBoundPath(LH, N, P) LSN,
+          (TL, unravel(H, getRootValue(H))))
+  if not TL contains unravel(H, getRootValue(H)) /\
+     LH := natNext(M, H, MQM) [owise] .
+
+ *** For q-narrowing
+ ceq developD(M, MQM, < T, 0 > LSN, TL) = developD(M, MQM, LSN, TL)
+  if getTerm(metaReduce(M, 'cterm[T])) =/= 'true.Bool .
+ ceq developD(M, MQM, < T, N > LSN, TL) = < T, N > LSN
+  if getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool /\
+     not TL contains T .
+ ceq developD(M, MQM, < T, N > LSN, TL) = developD(M, MQM, LSN, TL)
+  if TL contains T .
+ ceq developD(M, MQM, < T, s(N) > LSN, TL) = developD(M, MQM, putBoundPath(TL', N) LSN, TL)
+  if TL' := natNext(M, T, MQM) [owise] .
+
+
+***(%
+\end{verbatim}
+}
+
+\noindent where \texttt{putBound} computes a new list of nodes with the given
+remaining depth.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op putBoundPath : List{Heap} Nat TermList -> List{SearchNode} .
+ eq putBoundPath(nil, N, P) = nil .
+ eq putBoundPath(H LH, N, empty) = < H, N, empty > putBoundPath(LH, N, empty) .
+ eq putBoundPath(H LH, N, P) = < H, N, (P, getRootValue(H)) > putBoundPath(LH, N, P) [owise] .
+
+***(%
+\end{verbatim}
+}
+
+The breadth-first search is done by the function \texttt{developW}. It works as
+the function above, but introducing the new terms generated at the end of the
+list of nodes.
+
+{\codesize
+\begin{verbatim}
+%)
+
+ op developW : Module Map{Qid, Mdt} List{SearchNode} TermList -> List{SearchNode} .
+ eq developW(M, MQM, nil, TL) = nil .
+ ceq developW(M, MQM, < H, 0, P > LSN, TL) = developW(M, MQM, LSN, TL)
+  if T := unravel(H, getRootValue(H)) /\
+     getTerm(metaReduce(M, 'cterm[T])) == 'false.Bool .
+ ceq developW(M, MQM, < H, N, P > LSN, TL) = < H, N, P > LSN
+  if T := unravel(H, getRootValue(H)) /\
+     getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool /\
+     not TL contains T .
+ ceq developW(M, MQM, < H, N, P > LSN, TL) = developW(M, MQM, LSN, TL)
+  if T := unravel(H, getRootValue(H)) /\
+     TL contains T .
+ ceq developW(M, MQM, < H, s(N), P > LSN, TL) = developW(M, MQM, LSN putBoundPath(LH, N, P), (TL, unravel(H, getRootValue(H))))
+  if LH := natNext(M, H, MQM) [owise] .
+
+ *** For q-narrowing
+ ceq developW(M, MQM, < T, 0 > LSN, TL) = developW(M, MQM, LSN, TL)
+  if getTerm(metaReduce(M, 'cterm[T])) =/= 'true.Bool .
+ ceq developW(M, MQM, < T, N > LSN, TL) = < T, N > LSN
+  if getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool /\
+     not TL contains T .
+ ceq developW(M, MQM, < T, N > LSN, TL) = developW(M, MQM, LSN, TL)
+  if TL contains T .
+ ceq developW(M, MQM, < T, s(N) > LSN, TL) = developW(M, MQM, LSN putBoundPath(TL', N), TL)
+  if TL' := natNext(M, T, MQM) [owise] .
+
+ op putBoundPath : TermList Nat -> List{SearchNode} .
+ eq putBoundPath(empty, N) = nil .
+ eq putBoundPath((T, TL), N) = < T, N > putBoundPath(TL, N) .
+endfm
+
+***(%
+\end{verbatim}
+}
+%)fmod Q-UNIFICATION is
+ pr META-LEVEL .
+ pr TERMSET .
+
+ sort UnifProb .
+ op mtUP : -> UnifProb [ctor] .
+ op _==?_ : Term Term -> UnifProb [ctor] .
+ op _U_ : UnifProb UnifProb -> UnifProb [ctor assoc comm id: mtUP] .
+
+ sort UnifRes UnifResList .
+ subsort UnifRes < UnifResList .
+
+ ops errorUR : -> UnifRes [ctor] .
+ op _->_ : Term TermSet -> UnifRes [ctor] .
+
+ ops mtUR : -> UnifResList [ctor] .
+ op _;_ : UnifResList UnifResList -> UnifResList [ctor assoc comm id: mtUR] .
+
+ var  M : Module .
+ vars T T' : Term .
+ vars TL TL' : TermList .
+ vars TS TS' : TermSet .
+ var  UP : UnifProb .
+ var  UR : UnifRes .
+ vars URL URL' : UnifResList .
+ vars Q Q' : Qid .
+ vars V V' : Variable .
+ vars C C' : Constant .
+
+ op q-unify : UnifProb -> UnifResList .
+ eq q-unify(UP) = q-unify(UP, mtUR) .
+
+ op q-unify : UnifProb UnifRes -> UnifResList .
+ eq [solved] : q-unify(mtUP, URL) = URL .
+ eq [vTriv] : q-unify((T ==? T) U UP, URL) = q-unify(UP, URL) .
+ eq [dec] : q-unify((Q[TL] ==? Q[TL']) U UP, URL) = q-unify(addUnifProbs(TL, TL') U UP, URL) .
+ ceq [clash1] : q-unify((Q[TL] ==? Q'[TL']) U UP, URL) = errorUR
+  if Q =/= Q' .
+ eq [clash2] : q-unify((C ==? Q[TL]) U UP, URL) = errorUR .
+ eq [clash2] : q-unify((Q[TL] ==? C) U UP, URL) = errorUR .
+ eq [clash3] : q-unify((C ==? C') U UP, URL) = if getName(C) == getName(C')
+                                               then q-unify(UP, URL)
+                                               else errorUR
+                                               fi .
+ ceq [turn] : q-unify((T ==? V) U UP, URL) = q-unify((V ==? T) U UP, URL)
+  if not T :: Variable .
+ ceq [ocheck] : q-unify((V ==? T) U UP, URL) = q-unify(UP, URL')
+  if varInTerm(V, T) /\
+     V =/= T /\
+     URL' := add2result(V -> V | T, URL) .
+ ceq [ubind] : q-unify((V ==? T) U UP, URL) = q-unify(UP, URL')
+  if not varInTerm(V, T) /\
+     URL' := add2result(V -> T, URL) .
+
+ op addUnifProbs : TermList TermList -> UnifProb .
+ eq addUnifProbs((T, TL), (T', TL')) = (T ==? T') U addUnifProbs(TL, TL') .
+ eq addUnifProbs(TL, TL') = mtUP .
+
+ op add2result : UnifRes UnifResList -> UnifResList .
+ eq add2result(T -> TS, ((T -> TS') ; URL)) = (T -> (TS | TS')) ; URL .
+ eq add2result(T -> TS, URL) = (T -> TS) ; URL [owise] .
+
+ op add2result* : UnifResList UnifResList -> UnifResList .
+ eq add2result*(mtUR, URL) = URL .
+ eq add2result*(((T -> TS) ; URL), URL') = add2result*(URL, add2result(T -> TS, URL')) .
+
+ op varInTerm : Variable Term -> Bool .
+ eq varInTerm(V, Q[TL]) = varInTerm*(V, TL) .
+ eq varInTerm(V, C) = false .
+ eq varInTerm(V, V') = V == V' .
+
+ op varInTerm* : Variable TermList -> Bool .
+ eq varInTerm*(V, empty) = false .
+ eq varInTerm*(V, (T, TL)) = varInTerm(V, T) or-else varInTerm*(V, TL) .
+
+ op po : -> PrintOptionSet .
+ eq po = mixfix number rat format .
+
+ op printUnifRes : Module UnifResList -> QidList .
+ eq printUnifRes(M, mtUR) = nil .
+ eq printUnifRes(M, (T -> TS) ; URL) = '\n metaPrettyPrint(M, T, po) '-> printTermSet(M, TS)
+                                        printUnifRes(M, URL) .
+ eq printUnifRes(M, errorUR) = '\n '\r 'Clash. '\o .
+
+ op printTermSet : Module TermSet -> QidList .
+ ceq printTermSet(M, TS) = printTermSet*(M, TS)
+  if TS' := quitWithVariables(TS) .
+
+ op quitWithVariables : TermSet -> TermSet .
+ eq quitWithVariables(emptyTermSet) = emptyTermSet .
+ eq quitWithVariables(T | TS) = if hasVars?(T)
+                                then emptyTermSet
+                                else T
+                                fi | quitWithVariables(TS) .
+
+ op hasVars? : Term -> Bool .
+ eq hasVars?(V) = true .
+ eq hasVars?(C) = false .
+ eq hasVars?(Q[TL]) = hasVars?*(TL) .
+
+ op hasVars?* : TermList -> Bool .
+ eq hasVars?*(empty) = false .
+ eq hasVars?*((T, TL)) = hasVars?(T) or-else hasVars?*(TL) .
+
+ op printTermSet* : Module TermSet -> QidList .
+ eq printTermSet*(M, emptyTermSet) = nil .
+ ceq printTermSet*(M, T | TS) = metaPrettyPrint(M, T, po) ' '? printTermSet*(M, TS)
+  if TS =/= emptyTermSet .
+ eq printTermSet*(M, T) = metaPrettyPrint(M, T, po) .
+
+ op plural? : UnifResList -> Bool .
+ eq plural?(mtUR) = false .
+ eq plural?((T -> TS) ; URL) = plural?(TS) or-else plural?(URL) .
+
+ op plural? : TermSet -> Bool .
+ eq plural?(T | T' | TS) = true .
+ eq plural?(TS) = false [owise] .
+endfm
+
+fmod FRESH is
+ pr CONVERSION .
+ pr META-LEVEL .
+ pr TERMSET .
+
+ vars T T' : Term .
+ vars TL TL' : TermList .
+ var  TS : TermSet .
+ var  C : Constant .
+ vars V V' : Variable .
+ var  N : Nat .
+ var  Q : Qid .
+ var  AtS : AttrSet .
+ var  R : Rule .
+ var  RS : RuleSet .
+
+ op fresh : Term Nat -> Term .
+ eq fresh(Q[TL], N) = fresh*(Q, empty, TL, N) .
+ eq fresh(C, N) = C .
+ ceq fresh(V, N) = V'
+  if V' := qid(string(getName(V)) + "#" + string(N, 10) + ":" + string(getType(V))) .
+
+ op fresh* : Qid TermList TermList Nat -> Term .
+ eq fresh*(Q, TL, empty, N) = Q[TL] .
+ ceq fresh*(Q, TL, (T, TL'), N) = fresh*(Q, (TL, T'), TL', N)
+  if T' := fresh(T, N) .
+
+ op fresh : Rule Nat ~> Rule .
+ eq fresh(rl T => T' [AtS] ., N) = rl fresh(T, N) => fresh(T', N) [AtS] . .
+
+ op fresh* : RuleSet Nat ~> RuleSet .
+ eq fresh*(none, N) = none .
+ eq fresh*(R RS, N) = fresh(R, N) fresh*(RS, N) .
+
+ op getFreshSub : Term Nat -> Substitution .
+ ceq getFreshSub(T, N) = subsFreshSet(TS, N)
+  if TS := getVarsSet(T) .
+
+ op subsFreshSet : TermSet Nat -> Substitution .
+ eq subsFreshSet(emptyTermSet, N) = none .
+ eq subsFreshSet(T | TS, N) = T <- fresh(T, N) ; subsFreshSet(TS, N) .
+
+ op getVarsSet : Term -> TermSet .
+ eq getVarsSet(Q[TL]) = getVarsSet*(TL) .
+ eq getVarsSet(V) = V .
+ eq getVarsSet(T) = emptyTermSet [owise] .
+
+ op getVarsSet* : TermList -> TermSet .
+ eq getVarsSet*((T, TL)) = getVarsSet(T) | getVarsSet*(TL) .
+ eq getVarsSet*(empty) = emptyTermSet .
+endfm
+
+fmod Q-NARROWING is
+ pr NATURAL-REWRITING .
+ pr Q-UNIFICATION .
+ pr FRESH .
+
+ var  M : Module .
+ vars T T' T'' FT LHS RHS : Term .
+ vars TL TL' : TermList .
+ vars TS TS' TS1 TS2 TS3 : TermSet .
+ var  C : Constant .
+ vars V V' : Variable .
+ var  B : Bound .
+ var  R : Rule .
+ var  RS : RuleSet .
+ var  UR : UnifRes .
+ vars URL URL' URL'' : UnifResList .
+ var  Q : Qid .
+ var  AtS : AttrSet .
+ var  COND : Condition .
+ vars TUPL TUPL' : TUPairList .
+ vars N N' : Nat .
+ var  E : Element .
+ vars QU QU' : Queue .
+ var  TUP : TermUnifPair .
+ var  MQM : Map{Qid, Mdt} .
+ var  A : MDT .
+ vars F F' : Forest .
+ vars NL NL' : NatList .
+ var  BR : Branch .
+ var  NNRL : NatNarrResList .
+ var  SB : Substitution .
+ vars STR STR' : String .
+ var  S : Strategy .
+ var  SPS : StackPreviousStates .
+
+ sorts TermUnifPair TUPairList .
+ subsort TermUnifPair < TUPairList .
+
+ op {_,_} : Term UnifResList -> TermUnifPair [ctor] .
+ op mtTUPL : -> TUPairList [ctor] .
+ op __ : TUPairList TUPairList -> TUPairList [ctor assoc id: mtTUPL] .
+
+ sort StackPreviousStates .
+ op mtSPS : -> StackPreviousStates [ctor] .
+ op push : TUPairList StackPreviousStates -> StackPreviousStates [ctor] .
+
+ op inStack? : TUPairList StackPreviousStates -> Bool .
+ eq inStack?(TUPL, mtSPS) = false .
+ eq inStack?(TUPL, push(TUPL', SPS)) = TUPL == TUPL' or-else inStack?(TUPL, SPS) .
+
+ sort Queue Element .
+ subsort Element < Queue .
+ op mtQueue : -> Queue [ctor] .
+ op {_,_,_} : Term Bound UnifResList -> Element [ctor] .
+ op __ : Queue Queue -> Queue [ctor assoc id: mtQueue] .
+
+ sort NarrCont .
+ op noResult : -> NarrCont [ctor] .
+ op <_,_,_> : TermUnifPair Queue Nat -> NarrCont [ctor] .
+
+ sort NatNarrRes NatNarrResList .
+ subsort NatNarrRes < NatNarrResList .
+
+ op <_,_,_> : NatList Rule UnifResList -> NatNarrRes [ctor] .
+ op mtNNRL : -> NatNarrResList [ctor] .
+ op __ : NatNarrResList NatNarrResList -> NatNarrResList [ctor assoc comm id: mtNNRL] .
+
+ op q-narrowing : Module Term Map{Qid, Mdt} Bound Strategy -> NarrCont .
+ ceq q-narrowing(M, T, MQM, B, S) = < simplify*('foo:Exp, TUP), QU, N >
+  if TS := vars(fresh(T, 0)) /\
+     < TUP, QU, N > := narrowing(M, MQM, {T, B, 'foo:Exp -> 'X#0:Exp}, 0, S) .
+ eq q-narrowing(M, T, MQM, B, S) = noResult [owise] .
+
+ op contieneK1 : TUPairList -> Bool .
+ eq contieneK1({T, 'f:Exp -> 'k1.Exp | 'k2.Exp | TS}) = true .
+ eq contieneK1(TUPL) = false [owise] .
+
+ op q-narrowing : Module Term Map{Qid, Mdt} Queue Nat Strategy StackPreviousStates -> NarrCont .
+ ceq q-narrowing(M, T, MQM, QU, N, S, SPS) =
+               if not contieneK1(simplify*('foo:Exp, TUP)) *** inStack?(simplify*('foo:Exp, TUP), SPS)
+               then q-narrowing(M, T, MQM, QU', N', S, SPS)
+               else < simplify*('foo:Exp, TUP), QU', N' > *** < simplify*(TS, TUP), QU', N' >
+               fi
+  if TS := vars(fresh(T, 0)) /\
+     < TUP, QU', N' > := narrowing(M, MQM, QU, N, S) .
+ eq q-narrowing(M, T, MQM, QU, N, S, SPS) = noResult [owise] .
+
+ op narrowing : Module Map{Qid, Mdt} Queue Nat Strategy -> NarrCont .
+ eq narrowing(M, MQM, mtQueue, N, S) = noResult .
+ eq narrowing(M, MQM, {V, B, URL} QU, N, S) = narrowing(M, MQM, QU, N, S) .
+ ceq narrowing(M, MQM, {T, B, URL} QU, N, S) = < { T, URL }, QU, N >
+  if not T :: Variable /\
+     getTerm(metaReduce(M, 'cterm[T])) == 'true.Bool /\
+     vars(T) == emptyTermSet .
+ ceq narrowing(M, MQM, {T, 0, URL} QU, N, S) =  narrowing(M, MQM, QU, N, S) *** < { T, URL }, QU, N > ***
+  if not T :: Variable /\
+     getTerm(metaReduce(M, 'cterm[T])) == 'false.Bool .
+ ceq narrowing(M, MQM, {T, B, URL} QU, N, breadth) =
+                                   narrowing(M, MQM, QU QU', s(N), breadth)
+  if B =/= 0 /\
+     getTerm(metaReduce(M, 'cterm[T])) == 'false.Bool /\
+     FT := fresh(T, N) /\
+     SB := getFreshSub(T, N) /\
+     NNRL := mnt(M, FT, MQM[root(FT)], MQM) /\
+     QU' := genNewQueue(FT, freshURL(URL, SB), NNRL, B -. 1, N) .
+ ceq narrowing(M, MQM, {T, B, URL} QU, N, depth) =
+                                   narrowing(M, MQM, QU' QU, s(N), depth)
+  if SB := getFreshSub(T, N) /\
+     B =/= 0 /\
+     getTerm(metaReduce(M, 'cterm[T])) == 'false.Bool /\
+     FT := fresh(T, N) /\
+     NNRL := mnt(M, FT, MQM[root(FT)], MQM) /\
+     QU' := genNewQueue(FT, freshURL(URL, SB), NNRL, B -. 1, N) .
+*** eq narrowing(M, MQM, QU, N, S) = noResult [owise] .
+
+ op freshURL : UnifResList Substitution -> UnifResList .
+ eq freshURL(mtUR, SB) = mtUR .
+ eq freshURL((T -> TS) ; URL, SB) = (applySB(T, SB) -> applySBTS(TS, SB)) ;
+                                    freshURL(URL, SB) .
+
+ op applySBTS : TermSet Substitution -> TermSet .
+ eq applySBTS(emptyTermSet, SB) = emptyTermSet .
+ eq applySBTS(T | TS, SB) = applySB(T, SB) | applySBTS(TS, SB) .
+
+ op applySB : Term Substitution -> Term .
+ eq applySB(Q[TL], SB) = Q[applySB*(TL, SB)] .
+ eq applySB(C, SB) = C .
+ eq applySB(V, V <- T ; SB) = T .
+ eq applySB(V, SB) = V [owise] .
+
+ op applySB* : TermList Substitution -> TermList .
+ eq applySB*(empty, SB) = empty .
+ eq applySB*((T, TL), SB) = applySB(T, SB), applySB*(TL, SB) .
+
+ op genNewQueue : Term UnifResList NatNarrResList Bound Nat -> Queue .
+ eq genNewQueue(T, URL, mtNNRL, B, N) = mtQueue .
+ ceq genNewQueue(T, URL, < NL, R, URL' > NNRL, B, N) =
+                             narrApplyIn(T, URL'', B, NL, applyPl(getRHS(R), URL'))
+                             genNewQueue(T, URL, NNRL, B, N)
+  if URL'' := add2result*(URL', URL) .
+
+ op narrApplyIn : Term UnifResList Bound NatList Term -> Element .
+ ceq narrApplyIn(T, URL, B, NL, T') = {T'', B, URL}
+  if T'' := substituteIn(T, NL, T') .
+
+ op substituteIn : Term NatList Term ~> Term .
+ eq substituteIn(T, nil, T') = T' .
+ eq substituteIn(Q[TL], NL, T) = Q[substituteIn*(TL, NL, T)] .
+
+ op substituteIn* : TermList NatList Term ~> Term .
+ eq substituteIn*((T, TL), 1 NL, T') = substituteIn(T, NL, T'), TL .
+ eq substituteIn*((T, TL), N NL, T') = T, substituteIn*(TL, sd(N, 1) NL, T') [owise] .
+
+*** OJO
+ op mnt : Module Term MDT Map{Qid, Mdt} -> NatNarrResList .
+ ceq mnt(M, T, leaf(T', R), MQM) = < nil, R, q-unify(LHS ==? T) >
+  if rl LHS => RHS [AtS] . := R .
+ eq mnt(M, T, or(F), MQM) = mntAllRulesOr(M, T, F, MQM) .
+ ceq mnt(M, T, branch(T', BR), MQM) = mnt*(M, T, F, MQM)
+  if < NL, F > := firstCtor(M, T, BR) .
+ ceq mnt(M, T, branch(T', BR), MQM) = newList(NL, NNRL)
+  if < NL, F > := firstDef(M, T, BR) /\
+     NNRL := mnt(M, getTerm(T, NL), MQM[root(getTerm(T, NL))], MQM) .
+ *** In other case narrowing instead of rewriting is applied.
+ *** Note that this case may also be applied above.
+ ceq mnt(M, T, branch(T', BR), MQM) = traverseNNTL(M, T, MQM, NNTL)
+  if NNTL := firstVar(M, T, BR) .
+ eq mnt(M, T, A, MQM) = mtNNRL [owise] .
+
+ op mnt* : Module Term Forest Map{Qid, Mdt} -> NatNarrResList .
+ eq mnt*(M, T, empty, MQM) = mtNNRL .
+ eq mnt*(M, T, A F, MQM) = mnt(M, T, A, MQM) mnt*(M, T, F, MQM) .
+
+ op mntAllRulesOr : Module Term MDT Map{Qid, Mdt} -> NatNarrResList .
+ eq mntAllRulesOr(M, T, empty, MQM) = mtNNRL .
+ eq mntAllRulesOr(M, T, A F, MQM) = mnt(M, T, A, MQM) mntAllRulesOr(M, T, F, MQM) .
+
+ op newList : NatList NatNarrResList -> NatNarrResList .
+ eq newList(NL, mtNNRL) = mtNNRL .
+ eq newList(NL, < NL', R, URL > NNRL) = < NL NL', R, URL > newList(NL, NNRL) .
+
+ op newList : UnifResList NatNarrResList -> NatNarrResList .
+ eq newList(URL, mtNNRL) = mtNNRL .
+ eq newList(URL, < NL', R, URL' > NNRL) = < NL', R, add2result*(URL', URL) >
+                                          newList(URL, NNRL) .
+
+ op firstDef : Module Term Branch -> Branch .
+ eq firstDef(M, T, empty) = empty .
+ ceq firstDef(M, T, < NL, F > BR) = < NL, F >
+  if def(getRls(M), root(getTerm(T, NL))) .
+ eq firstDef(M, T, < NL, F > BR) = firstDef(M, T, BR) [owise] .
+
+ op def : RuleSet Qid -> Bool .
+ eq def(rl Q[TL] => T [AtS] . RS, Q) = true .
+ eq def(rl C => T [AtS] . RS, C) = true .
+ eq def(RS, Q) = false [owise] .
+
+ sort NatNarrTriple .
+ op error : ~> NatNarrTriple [ctor] .
+ op nnt : NatList MDT UnifResList -> NatNarrTriple [ctor] .
+
+ sort NatNarrTripleList .
+ subsort NatNarrTriple < NatNarrTripleList .
+ op mtNNTL : -> NatNarrTripleList [ctor] .
+ op __ : NatNarrTripleList NatNarrTripleList -> NatNarrTripleList [ctor assoc id: mtNNTL] .
+
+ var NNTL : NatNarrTripleList .
+
+ op traverseNNTL : Module Term Map{Qid, Mdt} NatNarrTripleList -> NatNarrResList .
+ eq traverseNNTL(M, T, MQM, mtNNTL) = mtNNRL .
+ ceq traverseNNTL(M, T, MQM, nnt(NL, A, URL) NNTL) = < nil, rl T => T [label('id)] ., URL >
+                                                     traverseNNTL(M, T, MQM, NNTL)
+  if plural?(URL) .
+ ceq traverseNNTL(M, T, MQM, nnt(NL, A, URL) NNTL) = newList(URL, NNRL)
+                                                     traverseNNTL(M, T, MQM, NNTL)
+  if not plural?(URL) /\
+     T'' := apply(T, URL) /\
+     NNRL := mnt(M, T'', A, MQM) .
+
+ op firstVar : Module Term Branch -> NatNarrTripleList .
+ eq firstVar(M, T, empty) = mtNNTL .
+ ceq firstVar(M, T, < NL, F > BR) = putNNT(NL, F', T)
+                                    firstVar(M, T, BR)
+  if getTerm(T, NL) :: Variable /\
+     F' := q-unifies?(M, T, F) .
+ eq firstVar(M, T, < NL, F > BR) = firstVar(M, T, BR) [owise] .
+
+*** OJO
+ op putNNT : NatList Forest Term -> NatNarrTripleList .
+ eq putNNT(NL, empty, T) = mtNNTL .
+ eq putNNT(NL, A F, T) = nnt(NL, A, q-unify(pattern(A) ==? T))
+                         putNNT(NL, F, T) .
+
+ op q-unifies? : Module Term Forest -> Forest .
+ eq q-unifies?(M, T, empty) = empty .
+ ceq q-unifies?(M, T, A F) = if URL =/= mtUR
+                             then A
+                             else empty
+                             fi q-unifies?(M, T, F)
+  if T' := pattern(A) /\
+  *** OJO
+     URL := q-unify(T' ==? T) /\
+     URL =/= errorUR .
+
+ op multipleSubs : Variable TermSet -> [Term] .
+
+ *** It only works with singleton substitutions
+ op apply : Term UnifResList ~> Term .
+ eq apply(Q[TL], URL) = Q[apply*(TL, URL)] .
+ eq apply(C, URL) = C .
+ eq apply(V, ((V -> T) ; URL)) = T .
+ eq apply(V, ((V -> T | T' | TS) ; URL)) = multipleSubs(V, T | T' | TS) .
+ eq apply(V, URL) = V [owise] .
+
+ op apply* : TermList UnifResList ~> TermList .
+ eq apply*(empty, URL) = empty .
+ eq apply*((T, TL), URL) = apply(T, URL), apply*(TL, URL) .
+
+ *** It works with any substitution. Not expected for some programs
+ op applyPl : Term UnifResList ~> Term .
+ eq applyPl(Q[TL], URL) = Q[applyPl*(TL, URL)] .
+ eq applyPl(C, URL) = C .
+ eq applyPl(V, ((V -> T) ; URL)) = T .
+ eq applyPl(V, ((V -> T | T' | TS) ; URL)) = set2term(T | T' | TS) .
+ eq applyPl(V, URL) = V [owise] .
+
+ op set2term : TermSet ~> Term .
+ eq set2term(T) = T .
+ eq set2term(T | TS) = '_?_[T, set2list(TS)] .
+
+ op set2list : TermSet -> TermList .
+ eq set2list(emptyTermSet) = empty .
+ eq set2list(T | TS) = T, set2list(TS) .
+
+ op applyPl* : TermList UnifResList ~> TermList .
+ eq applyPl*(empty, URL) = empty .
+ eq applyPl*((T, TL), URL) = applyPl(T, URL), applyPl*(TL, URL) .
+
+ op getLHS : Rule -> Term .
+ eq getLHS(rl T => T' [AtS] .) = T .
+ eq getLHS(crl T => T' if COND [AtS] .) = T .
+
+ op getRHS : Rule -> Term .
+ eq getRHS(rl T => T' [AtS] .) = T' .
+ eq getRHS(crl T => T' if COND [AtS] .) = T' .
+
+ op parts : Term -> Nat [memo] .
+ eq parts(Q[TL]) = s(parts*(TL)) .
+ eq parts(T) = 1 [owise] .
+
+ op parts* : TermList -> Nat .
+ eq parts*(empty) = 0 .
+ eq parts*((T, TL)) = parts(T) + parts*(TL) .
+
+ op _-._ : Bound Nat -> Bound .
+ eq unbounded -. N = unbounded .
+ eq N -. N' = sd(N, N') .
+
+ op printTUPL : Module TUPairList -> QidList .
+ eq printTUPL(M, mtTUPL) = nil .
+ eq printTUPL(M, {T, URL} TUPL) = '\n '`{ metaPrettyPrint(M, T, po) '`, ' printURL(M, URL) '`}
+                                  printTUPL(M, TUPL) .
+
+ op printURL : Module UnifResList -> QidList .
+ eq printURL(M, mtUR) = nil .
+ ceq printURL(M, (V -> TS) ; URL) = getName(V) '-> printTermSet(M, TS) ';
+                                    printURL(M, URL)
+  if URL =/= mtUR .
+ eq printURL(M, V -> TS) = getName(V) '-> printTermSet(M, TS) .
+
+*** OJO
+ op simplify* : TermSet TUPairList -> TUPairList .
+ ***(
+ eq simplify*(TS, TUPL) = TUPL .
+)
+ eq simplify*(TS, mtTUPL) = mtTUPL .
+ eq simplify*(TS, {T, URL} TUPL) = {T, simplify*(TS, URL)} simplify*(TS, TUPL) .
+
+ op simplify* : TermSet UnifResList -> UnifResList .
+ eq simplify*(emptyTermSet, URL) = mtUR .
+ eq simplify*(T | TS, URL) = quitMoreGeneral(simplify(T, URL)) ;
+                             simplify*(TS, URL) .
+
+ op simplify : Term UnifResList -> UnifResList .
+ eq simplify(T, (T -> TS) ; URL) = defresh(T) -> simplifyTS(TS, URL) .
+ eq simplify(T, URL) = mtUR [owise] .
+
+ op defresh : Variable -> Variable .
+ ceq defresh(V) = qid(STR' + ":Exp")
+  if STR := string(getName(V)) /\
+     STR' := substr(STR, 0, sd(length(STR), 2)) .
+
+ op simplifyTS : TermSet UnifResList -> TermSet .
+ eq simplifyTS(emptyTermSet, URL) = emptyTermSet .
+ eq simplifyTS(T | TS, URL) = simplifyT(T, URL) | simplifyTS(TS, URL) .
+
+ op simplifyT : Term UnifResList -> TermSet .
+ ceq simplifyT(T, URL) = traverseVars(T, TS, URL)
+  if TS := vars(T) .
+
+ op traverseVars : Term TermSet UnifResList -> TermSet .
+ eq traverseVars(T, V | TS, (V -> TS') ; URL) =
+                              traverseVarsAux(T, V | TS, (V -> TS') ; URL) .
+ eq traverseVars(T, TS, URL) = T [owise] .
+
+ op traverseVarsAux : Term TermSet UnifResList -> TermSet .
+ eq traverseVarsAux(T, V | TS, (V -> TS') ; URL) =
+                                   simplifyTS(substitute*(T, V, TS'), URL) .
+ eq traverseVarsAux(T, TS, URL) = simplifyT(T, URL) .
+
+ op substitute* : Term Variable TermSet -> TermSet .
+ eq substitute*(T, V, emptyTermSet) = emptyTermSet .
+ eq substitute*(T, V, T' | TS) = substitute(T, V, T') |
+                                 substitute*(T, V, TS) .
+
+ op substitute : Term Variable Term -> Term .
+ eq substitute(Q[TL], V, T) = Q[substituteTL(TL, V, T)] .
+ eq substitute(C, V, T) = C .
+ eq substitute(V, V', T) = if V == V'
+                           then T
+                           else V
+                           fi .
+
+ op substituteTL : TermList Variable Term -> TermList .
+ eq substituteTL(empty, V, T) = empty .
+ eq substituteTL((T, TL), V, T') = substitute(T, V, T'), substituteTL(TL, V, T') .
+
+ op quitMoreGeneral : UnifResList -> UnifResList .
+ eq quitMoreGeneral(T -> TS) = T -> quitMoreGeneral(TS, TS) .
+ eq quitMoreGeneral(URL) = URL [owise] .
+
+ op quitMoreGeneral : TermSet TermSet -> TermSet .
+ eq quitMoreGeneral(emptyTermSet, TS) = emptyTermSet .
+ eq quitMoreGeneral(T | TS, TS') = if moreGeneral?*(T, TS')
+                                   then quitMoreGeneral(TS, TS')
+                                   else T | quitMoreGeneral(TS, TS')
+                                   fi .
+
+ op moreGeneral?* : Term TermSet -> Bool .
+ eq moreGeneral?*(T, emptyTermSet) = false .
+ ceq moreGeneral?*(T, T' | TS) = moreGeneral?(T, T') or-else moreGeneral?*(T, TS)
+  if T =/= T' .
+ eq moreGeneral?*(T, T' | TS) = moreGeneral?*(T, TS) [owise].
+
+ op moreGeneral? : Term Term -> Bool .
+ eq moreGeneral?(Q[TL], Q[TL']) = moreGeneralTL?(TL, TL') .
+ eq moreGeneral?(V, T) = true .
+ eq moreGeneral?(C, C) = true .
+ eq moreGeneral?(T, T') = false [owise] .
+
+ op moreGeneralTL? : TermList TermList -> Bool .
+ eq moreGeneralTL?(empty, empty) = true .
+ eq moreGeneralTL?((T, TL), (T', TL')) = moreGeneral?(T, T') and-then
+                                         moreGeneralTL?(TL, TL') .
+
+ op vars : Term -> TermSet [memo] .
+ eq vars(Q[TL]) = vars*(TL) .
+ eq vars(V) = V .
+ eq vars(C) = emptyTermSet .
+
+ op vars* : TermList -> TermSet [memo] .
+ eq vars*(empty) = emptyTermSet .
+ eq vars*((T, TL)) = vars(T) | vars*(TL) .
+
+ op varsTS : TermSet -> TermSet [memo] .
+ eq varsTS(emptyTermSet) = emptyTermSet .
+ eq varsTS(T | TS) = vars(T) | varsTS(TS) .
+
+ op mulSub* : TermSet UnifRes -> TermSet .
+ eq mulSub*(emptyTermSet, UR) = emptyTermSet .
+ eq mulSub*(T | TS, UR) = mulSub(T, UR) | mulSub*(TS, UR) .
+
+ op mulSub : Term UnifRes -> TermSet .
+ eq mulSub(T, V -> emptyTermSet) = emptyTermSet .
+ eq mulSub(T, V -> T' | TS) = sub(T, V, T') | mulSub(T, V -> TS) .
+
+ op sub : Term Variable Term -> Term .
+ eq sub(Q[TL], V, T) = Q[sub*(TL, V, T)] .
+ eq sub(C, V, T) = C .
+ eq sub(V, V', T) = if V == V'
+                    then T
+                    else V
+                    fi .
+
+ op sub* : TermList Variable Term -> TermList .
+ eq sub*(empty, V, T) = empty .
+ eq sub*((T, TL), V, T') = sub(T, V, T'), sub*(TL, V, T') .
+
+ op getRHS : Rule -> Term .
+ eq getRHS(rl LHS => RHS [AtS] .) = RHS .
+ eq getRHS(crl LHS => RHS if COND [AtS] .) = RHS .
+endfm
+
+
+***(%
+
+\subsection{I/O handling}\label{subsec:io}
+
+
+
+{\codesize
+\begin{comment}
+%)
+
+fmod AUXILIARY-OPS is
+ pr META-LEVEL .
+ pr CONVERSION .
+ pr MAP{Qid, Mdt} .
+
+ var  SS : SortSet .
+ var  SSDS : SubsortDeclSet .
+ var  ODS : OpDeclSet .
+ var  MAS : MembAxSet .
+ var  EqS : EquationSet .
+ var  IL : ImportList .
+ vars T T' T1 T2 : Term .
+ var  N : Nat .
+ var  Q : Qid .
+ vars RS RS' : RuleSet .
+ var  B : Branch .
+ var  A : MDT .
+ var  AtS : AttrSet .
+ var  M : Module .
+ var  NL : NatList .
+ var  F : Forest .
+ var  MQM : Map{Qid, Mdt} .
+ var  R : Rule .
+
+ op label : RuleSet Nat -> RuleSet .
+
+ eq label(none, N) = none .
+ eq label(rl T => T' [label(Q) AtS] . RS, N) =
+                rl T => T' [label(Q) AtS] . label(RS, N) .
+ eq label(rl T => T' [AtS] . RS, N) =
+                rl T => T' [createLabel(N) AtS] . label(RS, s(N)) [owise] .
+
+ op createLabel : Nat -> Attr .
+ eq createLabel(N) = label(qid("L@#$" + string(N, 10))) .
+
+ op setRls : Module RuleSet -> Module .
+ eq setRls(mod Q is IL sorts SS . SSDS ODS MAS EqS RS endm, RS') =
+        mod Q is IL sorts SS . SSDS ODS MAS EqS RS' endm .
+
+ op getRules : Map{Qid, Mdt} -> RuleSet .
+ op getRules : MDT -> RuleSet .
+ op getRules* : Forest -> RuleSet .
+ op getRulesBranch : Branch -> RuleSet .
+
+ eq getRules((Q |-> A, MQM)) = getRules(A) getRules(MQM) .
+ eq getRules((empty).Map{Qid, Mdt}) = none .
+
+ eq getRules(leaf(T, R)) = R .
+ eq getRules(or(F)) = getRules*(F) .
+ eq getRules(branch(T, B)) = getRulesBranch(B) .
+
+ eq getRules*(A F) = getRules(A) getRules*(F) .
+ eq getRules*(empty) = none .
+
+ eq getRulesBranch(empty) = none .
+ eq getRulesBranch(< NL, F > B) = getRules*(F) getRulesBranch(B) .
+
+ op extend : Module Map{Qid, Mdt} -> Module .
+ eq extend(M, MQM) = setRls(M, label(getRls(M) getRules(MQM), 0)) .
+
+ op label : RuleSet Map{Qid, Mdt} -> Map{Qid, Mdt} .
+ eq label(RS, (Q |-> A, MQM)) = Q |-> label(RS, A), label(RS, MQM) .
+ eq label(RS, (empty).Map{Qid, Mdt}) = (empty).Map{Qid, Mdt} .
+
+ op label : RuleSet MDT -> MDT .
+ eq label(RS, leaf(T, R)) = leaf(T, label(RS, R)) .
+ eq label(RS, or(F)) = or(label*(RS, F)) .
+ eq label(RS, branch(T, B)) = branch(T, label(RS, B)) .
+
+ op label : RuleSet Branch -> Branch .
+ eq label(RS, < NL, F > B) = < NL, label*(RS, F) > label(RS, B) .
+ eq label(RS, (empty).Branch) = (empty).Branch .
+
+ op label : RuleSet Rule -> Rule .
+ eq label(rl T => T' [label(Q) AtS] . RS, rl T => T' [AtS] .) = rl T => T' [label(Q) AtS] . .
+ eq label(RS, R) = R [owise] .
+
+ op label* : RuleSet Forest -> Forest .
+ eq label*(RS, empty) = empty .
+ eq label*(RS, A F) = label(RS, A) label*(RS, F) .
+endfm
+
+***(%
+\end{comment}
+}
+
+The module \texttt{PLURAL-HANDLING} is in charge of dealing with
+the commands introduced by the user.
+
+{\codesize
+\begin{verbatim}
+%)
+
+mod PLURAL-HANDLING is
+  pr MODULE-CONSTRAINTS .
+  pr NATURAL-REWRITING .
+  pr PLURAL-PARSING .
+  pr MAYBE{TermList} .
+  pr MAYBE{Module} .
+  pr AUXILIARY-OPS .
+  pr Q-NARROWING .
+
+  vars T T' T1 T2 TG : Term .
+  var  T? : [Term] .
+  vars TL P P' IP : TermList .
+  var  MT : Maybe{TermList} .
+  var  Ty : Type .
+  var  Sb : Substitution .
+  vars MM MM' : Maybe{Module} .
+  vars MQM MQM' : Map{Qid, Mdt} .
+  vars M M' M'' : Module .
+  vars N N' B B' NB : Nat .
+  var  Q : Qid .
+  vars QIL QIL' : QidList .
+  var  AtS : AttributeSet .
+  var  S : Strategy .
+  var  LSN LSN' : List{SearchNode} .
+  var  PA : Bool .
+  var  H : Heap .
+  var  TUPL : TUPairList .
+  vars QU QU' : Queue .
+  var  SPS : StackPreviousStates .
+
+***(%
+\end{verbatim}
+}
+
+The state of the input/output loop is defined by a set of attributes
+that keeps information about the state of the tool.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  sorts Attribute AttributeSet PluralState .
+  subsort Attribute < AttributeSet .
+
+  op emptyAS : -> AttributeSet .
+  op _,_ : AttributeSet AttributeSet -> AttributeSet [assoc comm id: emptyAS] .
+  op <_> : AttributeSet -> PluralState .
+
+***(%
+\end{verbatim}
+}
+
+The constant \texttt{maxRewrites} indicates the maximum number of rewrites that
+will be tried (if the user does not introduce a bound) until the tool decides that
+there is a infinite computation.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op maxRewrites : -> Nat .
+  eq maxRewrites = 500 .
+
+***(%
+\end{verbatim}
+}
+
+We define the following attributes:
+
+\begin{itemize}
+
+\item \texttt{input} keeps the data (the command) introduced by the user.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op input :_ : TermList -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{output} receives the list of quoted identifiers that will be
+prompted to the user.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op output :_ : QidList -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{module} stores the current module, where the rewritings take
+place. It has sort \verb"Maybe{Module}", so its value is initially \verb"maybe".
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op module :_ : Maybe{Module} -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{extendedModule} stores the transformed module plus the rules
+instantiated in the matching definitional trees.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op extendedModule :_ : Maybe{Module} -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{treeMap} stores a mapping from any function symbol in the current module to a
+safe matching definitional tree for it, that is used to implement the natural rewriting strategy.
+Its value is initially \texttt{empty}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op treeMap :_ : Map{Qid, Mdt} -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{searchTree} stores the search tree computed so far, in order to compute
+the next solutions. This list represents a stack if depth-first strategy is selected,
+and a queue if width-first is selected.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op searchTree :_ : List{SearchNode} -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{strategy} indicates the strategy selected to compute the search tree.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op strategy :_ : Strategy -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{results} keeps the results already obtained to avoid repetitions.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op results :_ : TermList -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{bound} saves the upper bound used in the search.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op bound :_ : Nat -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item \texttt{path} stores the path to the last result shown by the tool.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op path :_ : TermList -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item
+The attribute \texttt{pathActive} controls if the current path is kept.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op pathActive :_ : Bool -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item
+The attribute \texttt{queue} keeps the current queue in the narrowing process:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op queue :_ : Queue -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item
+\texttt{fresh} indicates the next index to be used to generate fresh variables in the narrowing
+process:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op fresh :_ : Nat -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item
+\texttt{init-term} indicates the initial term used in the narrowing process:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op init-term :_ : Maybe{TermList} -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\item
+\texttt{narr-bound} keeps the bound in the number of steps for the narrowing
+process:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op narr-bound :_ : Nat -> Attribute [gather(&)] .
+  op stack :_ : StackPreviousStates -> Attribute [gather(&)] .
+
+***(%
+\end{verbatim}
+}
+
+\end{itemize}
+
+The constant \texttt{helpMsg} contains the help message, that
+will be shown when the \texttt{help} command is used.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op helpMsg : -> QidList .
+
+***(%
+\end{verbatim}
+}
+
+{\codesize
+\begin{comment}
+%)
+
+  eq helpMsg = 'Available 'commands: '\n
+   '\t 'load '<filename> ': 'loads 'a 'program 'from 'the 'file 'specified. '\n
+   '\t '`( 'eval '<expression> '. '`) ' ': 'evaluates 'an 'expression 'to 'a
+       'constructor 'normal 'form. '\n
+   '\t '`( 'eval ' '`[ 'depth= '<nat> '`] ' '<expression> '. '`) ' ': 'evaluates 'an
+       'expression 'to 'a 'constructor 'normal 'form 'with 'the 'given 'bound
+       'in 'the 'number 'of 'rewrites. '\n
+   '\t '`( 'more '. '`) ' ': 'prints 'the 'next 'value 'for 'the 'current
+       'evaluated 'expression 'if 'any. '\n
+   '\t '`( 'depth-first '. '`) ' ': 'selects 'the 'depth-first 'strategy. '\n
+   '\t '`( 'breadth-first '. '`) ' ': 'selects 'the 'breadth-first 'strategy. '\n
+   '\t '`( 'reboot '. '`) ' ': 'reboots 'the 'system. '\n
+   '\t ' 'quit ': 'exits 'the 'interpreter. '\n
+   '\t '`( 'showTr '. '`) ' ': 'prints 'the 'program 'result 'of 'the
+       'transformation 'that 'will 'be 'used 'for 'evaluation. '\n
+   '\t '`( 'show 'path '. '`) ' ': 'prints 'the 'path 'to 'the 'last 'solution. '\n
+   '\t '`( 'help '. '`) ' ': 'shows 'this 'help 'message. '\n .
+
+***(%
+\end{comment}
+}
+
+The rule \texttt{module-in} processes a module and puts it in the corresponding
+attribute if it fulfills the conditions shown in Section \ref{subsec:aux} and computes
+the forest of matching definitional trees with the function \texttt{MDTMap} shown
+in Section \ref{subsec:mdt}. The function \texttt{extend} adds to the module the
+instantiated rules from the trees.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [module-in] :
+      < input : 'plural_is_endp[T, T'], module : MM, output : nil, treeMap : MQM,
+        extendedModule : MM', path : P, AtS >
+   => < input : empty, module : M, output : ('\n 'Module 'introduced. '\n QIL),
+        treeMap : label(getRls(M'), MQM'), extendedModule : M', path : empty, AtS >
+   if < M, nil > := processModule(T, T') /\
+      MQM' := MDTMap(M) /\
+      M' := extend(M, MQM') /\
+      QIL := if equivalent?(M)
+             then equivalent
+             else no-equivalent
+             fi .
+
+***(%
+\end{comment}
+}
+
+\begin{comment}
+
+The rule \texttt{q-module-in} processes a module for q-narrowing and puts it in the
+corresponding attribute:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [q-module-in] :
+      < input : 'smod_is_ends[T, T'], module : MM, output : nil, treeMap : MQM,
+        extendedModule : MM', AtS >
+   => < input : empty, module : M, output : ('\n 'Module 'introduced. '\n),
+        treeMap : label(getRls(M''), MQM'), extendedModule : M'', AtS >
+   if < M, nil > := processQModule(T, T') /\
+      M' := addGen(M) /\
+      MQM' := MDTMap(M') /\
+      M'' := extend(M', MQM') .
+
+***(%
+\end{verbatim}
+}
+
+\end{comment}
+
+The rule \texttt{wrong-module-in} prompts an error message if the module
+does not fulfill the appropriate constraints.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [wrong-module-in] :
+      < input : 'plural_is_endp[T, T'], module : MM, output : nil, AtS >
+   => < input : empty, module : maybe, output : QIL, AtS >
+   if < M, QIL > := processModule(T, T') /\
+      QIL =/= nil .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{module-error} returns an error if the module has not been given
+and the user tries to use a command different of module introduction.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [module-error] :
+      < input : Q[TL], module : maybe, output : nil, AtS >
+   => < input : empty, module : maybe, output : ('\n 'The 'module 'has
+                                                 'not 'been 'introduced 'yet. '\n), AtS >
+   if Q =/= 'plural_is_endp .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{eval} evaluates the expression given by the user with
+\texttt{maxRewrites} as upper bound in the number of rewrites.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [eval] :
+      < input : 'eval_.[T], extendedModule : M, results : TL, bound : B,
+        treeMap : MQM, searchTree : LSN, strategy : S, path : P, pathActive : PA,
+        output : nil, AtS >
+   => < input : empty, extendedModule : M, results : T2, bound : maxRewrites,
+        treeMap : MQM, searchTree : LSN', path : P', strategy : S, pathActive : PA,
+        output : ('\n 'Result: metaPrettyPrint(M, T2) '\n), AtS >
+   if T1 := first(processExp(T)) /\
+      valid(M, T1) /\
+      IP := if PA then T1 else empty fi /\
+      < H, N, P' > LSN' := evaluate(M, MQM, < ['$@%&H0:Exp <- T1, '$@%&H0:Exp, fs(getRls(M)),
+                                                1], maxRewrites, IP >, empty, S) /\
+      T2 := getRootValue(H) .
+
+***(%
+\end{verbatim}
+}
+
+If the expression to be evaluated has no meaning in the module, a error
+message is prompt.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [eval-wrong-exp] :
+      < input : 'eval_.[T], module : M, results : TL, searchTree : LSN,
+        bound : B, output : nil, AtS >
+   => < input : empty, module : M, results : empty, searchTree : nil,
+        bound : maxRewrites, output : ('\n 'Wrong 'expression. '\n), AtS >
+   if T1 := first(processExp(T)) /\
+      not valid(M, T1) .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{eval-failure} is applied when a correct expression introduced by the user
+cannot be reduced to a cterm.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [eval-failure] :
+      < input : 'eval_.[T], extendedModule : M, treeMap : MQM, results : TL,
+        searchTree : LSN, strategy : S, bound : B, output : nil,
+        pathActive : PA, AtS >
+   => < input : empty, extendedModule : M, treeMap : MQM, results : empty,
+        searchTree : nil, strategy : S, bound : maxRewrites, pathActive : PA,
+        output : ('\n 'The 'term 'cannot 'be 'reduced 'to 'a 'cterm. '\n), AtS >
+   if T1 := first(processExp(T)) /\
+      IP := if PA then T1 else empty fi /\
+      nil == evaluate(M, MQM, < ['$@%&H0:Exp <- T1, '$@%&H0:Exp,
+                                                fs(getRls(M)), 1], B, IP >, empty, S) .
+
+***(%
+\end{verbatim}
+}
+
+Similarly, the \verb"eval-gen" rule is in charge of dealing with the search using the
+\verb"gen" rules:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [eval-gen] :
+      < input : 'eval-gen_.[T], extendedModule : M, results : TL, bound : B,
+        treeMap : MQM, searchTree : LSN, strategy : S, output : nil, AtS >
+   => < input : empty, extendedModule : M, results : T2, bound : B,
+        treeMap : MQM, searchTree : LSN', strategy : S,
+        output : ('\n 'Result: metaPrettyPrint(M, T2) '\n), AtS >
+   if T1 := termWithVariables2Gen(first(processExp(T))) /\
+      valid(M, T1) /\
+      < T2, N > LSN' := evaluate(M, MQM, < T1, B >, empty, S) .
+
+  crl [eval-gen-wrong-exp] :
+      < input : 'eval-gen_.[T], extendedModule : M, results : TL, searchTree : LSN,
+        bound : B, output : nil, AtS >
+   => < input : empty, extendedModule : M, results : empty, searchTree : nil,
+        bound : maxRewrites, output : ('\n 'Wrong 'expression. '\n), AtS >
+   if T1 := termWithVariables2Gen(first(processExp(T))) /\
+      not valid(M, T1) .
+
+  crl [eval-gen-failure] :
+      < input : 'eval-gen_.[T], extendedModule : M, treeMap : MQM, results : TL,
+        searchTree : LSN, strategy : S, bound : B, output : nil, AtS >
+   => < input : empty, extendedModule : M, treeMap : MQM, results : empty,
+        searchTree : nil, strategy : S, bound : maxRewrites,
+        output : ('\n 'The 'term 'cannot 'be
+                  'reduced 'to 'a 'cterm. '\n), AtS >
+   if T1 := termWithVariables2Gen(first(processExp(T))) /\
+      nil == evaluate(M, MQM, < T1, B >, empty, S) .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{bound-eval} evaluates the given expression with the selected bound.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [bound-eval] :
+      < input : ('eval`[depth=_`]_.['token[T], T']), extendedModule : M,
+        treeMap : MQM, results : TL, searchTree : LSN, strategy : S,
+        bound : B, path : P, output : nil, pathActive : PA, AtS >
+   => < input : empty, extendedModule : M, treeMap : MQM, results : T2,
+        searchTree : LSN', strategy : S, bound : B', path : P', pathActive : PA,
+        output : ('\n 'Result: metaPrettyPrint(M, T2) '\n), AtS >
+   if B' := downNat(downQid(T)) /\
+      T1 := first(processExp(T')) /\
+      IP := if PA then T1 else empty fi /\
+      < H, N, P' > LSN' := evaluate(M, MQM, < ['$@%&H0:Exp <- T1, '$@%&H0:Exp,
+                                                fs(getRls(M)), 1], B', IP >, empty, S) /\
+      T2 := getRootValue(H) .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{bound-eval-failure} prompts an error message when no more solutions are
+available.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [bound-eval-failure] :
+      < input : ('eval`[depth=_`]_.['token[T], T']), extendedModule : M,
+        bound : B, treeMap : MQM, results : TL, searchTree : LSN, strategy : S,
+        pathActive : PA, output : nil, AtS >
+   => < input : empty, extendedModule : M, bound : maxRewrites,
+        treeMap : MQM, results : empty, searchTree : nil, strategy : S,
+        pathActive : PA, output : ('\n 'The 'term 'cannot 'be 'reduced 'to 'a 'cterm
+                                   'with 'the 'given 'bound. '\n), AtS >
+   if B' := downNat(downQid(T)) /\
+      T1 := first(processExp(T')) /\
+      IP := if PA then T1 else empty fi /\
+      nil == evaluate(M, MQM, < ['$@%&H0:Exp <- T1, '$@%&H0:Exp,
+                                 fs(getRls(M)), 1], B', IP >, empty, S)  .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{bound-eval-wrong-bound} shows an error when the bound is not a natural
+number.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [bound-eval-wrong-bound] :
+      < input : ('eval`[depth=_`]_.['token[T], T']), output : nil, AtS >
+   => < input : empty, output : ('\n 'Wrong 'bound. '\n), AtS >
+   if not downNat(downQid(T)) :: Nat .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{more} evaluates the last expression introduced by the user, looking for
+the next solution.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [more] :
+      < input : ('more`..@Command@), extendedModule : M, results : TL,
+        treeMap : MQM, searchTree : LSN, strategy : S, bound : B,
+        path : P, output : nil, AtS >
+   => < input : empty, extendedModule : M, results : (TL, T1), treeMap : MQM,
+        searchTree : LSN', strategy : S, bound : B, path : P',
+        output : ('\n 'Result: metaPrettyPrint(M, T1) '\n), AtS >
+   if < H, N, P' > LSN' := evaluate(M, MQM, LSN, TL, S) /\
+      T1 := getRootValue(H) .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{more-failure} shows an error messages when no more solutions are available.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [more-failure] :
+      < input : ('more`..@Command@), extendedModule : M, bound : B,
+        results : TL, treeMap : MQM, searchTree : LSN, strategy : S, output : nil, AtS >
+   => < input : empty, extendedModule : M, bound : B, results : TL,
+        treeMap : MQM, searchTree : nil, strategy : S,
+        output : ('\n 'No 'more 'results. '\n), AtS >
+   if nil == evaluate(M, MQM, LSN, TL, S) .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{more-no-exp} prints an error message if there is no expression
+to be evaluated.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  rl [more-no-exp] :
+     < input : ('more`..@Command@), module : M, searchTree : nil, output : nil, AtS >
+  => < input : empty, module : M, searchTree : nil,
+       output : ('\n 'There 'is 'no 'expression 'to 'be 'evaluated. '\n), AtS > .
+
+***(%
+\end{verbatim}
+}
+
+If the module has not been introduced yet, the tool also shows the corresponding
+error message.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  rl [more-no-module] :
+     < input : ('more`..@Command@), module : maybe, output : nil, AtS >
+  => < input : empty, module : maybe,
+       output : ('\n 'No 'module 'introduced. '\n), AtS > .
+
+***(%
+\end{verbatim}
+}
+
+The rules \texttt{depth-first} and \texttt{breadth-first} change the current strategy.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  rl [depth-first] :
+     < input : ('depth-first`..@Command@), strategy : S, searchTree : LSN,
+       output : nil, AtS >
+  => < input : empty, strategy : depth, searchTree : nil,
+       output : ('\n 'Depth-first 'strategy 'selected. '\n), AtS > .
+
+  rl [breadth-first] :
+     < input : ('width-first`..@Command@), strategy : S, searchTree : LSN,
+       output : nil, AtS >
+  => < input : empty, strategy : breadth, searchTree : nil,
+       output : ('\n 'Width-first 'strategy 'selected. '\n), AtS > .
+
+  rl [breadth-first] :
+     < input : ('breadth-first`..@Command@), strategy : S, searchTree : LSN,
+       output : nil, AtS >
+  => < input : empty, strategy : breadth, searchTree : nil,
+       output : ('\n 'Breadth-first 'strategy 'selected. '\n), AtS > .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{show-path} prints the trace to reach the last solution.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  rl [show-path] :
+     < input : ('show`path`..@Command@), extendedModule : M, path : P,
+       output : nil, AtS >
+  => < input : empty, extendedModule : M, path : P,
+       output : if P =/= empty
+                then printPath(M, P)
+                else ('\n 'No 'path 'available. '\n)
+                fi, AtS > .
+
+***(%
+\end{verbatim}
+}
+
+The rules \texttt{activate-path} and \texttt{deactivate-path} update the
+\texttt{pathActive} attribute.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  rl [activate-path] :
+     < input : ('path`on`..@Command@), pathActive : PA, output : nil, AtS >
+  => < input : empty, pathActive : true, output : ('\n 'Path 'activated. '\n), AtS > .
+
+  rl [deactivate-path] :
+     < input : ('path`off`..@Command@), pathActive : PA, output : nil, AtS >
+  => < input : empty, pathActive : false, output : ('\n 'Path 'deactivated. '\n), AtS > .
+
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{reboot} initializes all the attributes.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  rl [reboot] :
+     < input : ('reboot`..@Command@), output : nil, AtS >
+  => < input : empty, module : maybe, treeMap : empty, searchTree : nil,
+       strategy : depth, extendedModule : maybe, results : empty, bound : maxRewrites,
+       path : empty, pathActive : false, output : ('\n 'Tool 'rebooted. '\n) > .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{showTr} prints the program resulting after the transformation.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  rl [show_transformed] :
+     < input : ('showTr`..@Command@), module : M, output : nil, AtS >
+  => < input : empty, module : M, output : ('\n 'Transformed 'source 'program:
+                 '\n metaPrettyPrintRuleSetPlural(M, getRls(M), mixfix) '\n), AtS > .
+
+  rl [show_transformed-fail] :
+     < input : ('showTr`..@Command@), module : maybe, output : nil, AtS >
+  => < input : empty, module : maybe, output : ('\n 'No 'module 'has 'been
+                                                'introduced 'yet. '\n), AtS > .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{unif} shows the result of unifying two terms:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [unif] :
+      < input : ('_=?_.[T, T']), module : M, output : nil, AtS >
+   => < input : empty, module : M, output : ('\n printUnifRes(M, q-unify(T1 ==? T2)) '\n), AtS >
+   if T1 := first(processExp(T)) /\
+      T2 := first(processExp(T')) .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{narr} applies narrowing to the given expression:
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [narr] :
+      < input : ('narrowing_.[T]), module : M, output : nil, queue : QU,
+        fresh : N, init-term : MT, narr-bound : NB, treeMap : MQM,
+        strategy : S, stack : SPS, AtS >
+   => < input : empty, module : M, output : ('\n printTUPL(M, TUPL) '\n),
+        queue : QU', fresh : N', init-term : T1, narr-bound : NB,
+        treeMap : MQM, strategy : S, stack : push(TUPL, mtSPS), AtS >
+   if T1 := first(processExp(T)) /\
+      < TUPL, QU', N' > := q-narrowing(M, T1, MQM, NB, S) .
+
+  crl [narr-end] :
+      < input : ('narrowing_.[T]), module : M, output : nil, queue : QU,
+                treeMap : MQM, narr-bound : NB, strategy : S, AtS >
+   => < input : empty, module : M, treeMap : MQM,
+                output : ('\n 'The 'term 'cannot 'be 'reduced 'to 'a 'cterm. '\n),
+        queue : mtQueue, narr-bound : NB, strategy : S, AtS >
+   if T1 := first(processExp(T)) /\
+      noResult == q-narrowing(M, T1, MQM, NB, S) .
+
+  crl [cont] :
+      < input : ('cont`..@Command@), module : M, output : nil, queue : QU,
+        fresh : N, init-term : T, treeMap : MQM, strategy : S,
+        stack : SPS, AtS >
+   => < input : empty, module : M, output : ('\n printTUPL(M, TUPL) '\n),
+        queue : QU', fresh : N', init-term : T, treeMap : MQM,
+        strategy : S, stack : push(TUPL, SPS), AtS >
+   if QU =/= mtQueue /\
+      < TUPL, QU', N' > := q-narrowing(M, T, MQM, QU, N, S, SPS) .
+
+  rl [cont-empty-queue] :
+     < input : ('cont`..@Command@), output : nil, queue : mtQueue, AtS >
+  => < input : empty, output : ('\n 'No 'more 'solutions. '\n),
+       queue : mtQueue, AtS > .
+
+  crl [cont-end] :
+      < input : ('cont`..@Command@), module : M, output : nil, queue : QU,
+        fresh : N, init-term : T, treeMap : MQM, strategy : S, stack : SPS, AtS >
+   => < input : ('cont`..@Command@), module : M, output : nil, queue : mtQueue,
+        fresh : N, init-term : T, treeMap : MQM, strategy : S, stack : SPS, AtS >
+   if T1 := first(processExp(T)) /\
+      noResult == q-narrowing(M, T, MQM, QU, N, S, SPS) .
+
+  crl [narr-depth-error] :
+      < input : ('narrowing`depth_.['token[T]]), output : nil,
+        narr-bound : NB, AtS >
+   => < input : empty, output : ('\n 'Bound 'for 'narrowing 'fixed. '\n),
+        narr-bound : N, AtS >
+   if N := downNat(downQid(T)) .
+
+  crl [narr-depth-error] :
+      < input : ('narrowing`depth_.['token[T]]), output : nil, AtS >
+   => < input : empty, output : ('\n 'Wrong 'bound. '\n), AtS >
+   if not downNat(downQid(T)) :: Nat .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{help} prints a short ussage message.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  rl [help] :
+     < input : ('help`..@Command@), output : nil, AtS >
+  => < input : empty, output : ('\n helpMsg '\n), AtS > .
+endm
+
+***(%
+\end{verbatim}
+}
+
+The interaction between the user and the tool by defining
+can be done in Maude itself by using the
+predefined module \texttt{LOOP-MODE} \cite[Chapter 17]{maude-book}, that handles
+the input/output and maintains the persistent state of the tool.
+The \texttt{LOOP-MODE} module defines an operator \verb"[_,_,_]", of
+sort \texttt{System}, that
+receives an input stream (the first argument), an output stream (the third
+argument), and a state (given by its second argument) of sort \texttt{State}.
+Concrete applications must specify \texttt{State} to define
+the data that must be kept during the execution of the program.
+
+The module \texttt{PLURAL-LOOP} includes this module and defines the
+behaviour of the loop.
+
+{\codesize
+\begin{verbatim}
+%)
+
+mod PLURAL-LOOP is
+  inc LOOP-MODE .
+  pr PLURAL-HANDLING .
+  pr META-PLURAL-SIGN .
+
+  vars QIL QIL' QIL'' : QidList .
+  var  AtS : AttributeSet .
+  var  N : Nat .
+  var  RP? : [ResultPair] .
+  vars RP RP' : ResultPair .
+  var  Q : Qid .
+
+***(%
+\end{verbatim}
+}
+
+We make \texttt{PluralState} a subsort of \texttt{State}, thus the set of
+attributes defined above is the data that will be modified by the system.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  subsort PluralState < State .
+
+***(%
+\end{verbatim}
+}
+
+A constant \texttt{init-plural} is created in order to obtain the initial
+state.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op init-plural : -> System .
+  op init-s : -> System .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{init} rewrites this constant into the initial state.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op init-state : -> AttributeSet .
+  eq init-state = input : empty, output : nil, module : maybe, treeMap : empty,
+                  searchTree : nil, strategy : depth, extendedModule : maybe,
+                  results : empty, bound : maxRewrites, path : empty,
+                  pathActive : false, queue : mtQueue, fresh : 0,
+                  init-term : maybe, narr-bound : 8, stack : mtSPS .
+
+  rl [init-plural] :
+     init-plural
+  => [nil, < init-state >, ('\n '\t 'Executable 'Plural 'Semantics
+                            '\s '`( 'November '1st '`, '\s '2010 '`) '\n)] .
+
+  rl [init-q] :
+     init-s
+  => [nil, < init-state >, ('\n '\t 'Executable 'S-Narrowing
+                            '\s '`( 'January '9th '`, '\s '2012 '`) '\n)] .
+
+***(%
+\end{verbatim}
+}
+
+The rule \texttt{in} parses the input introduced by the user in the module
+\texttt{SGRAMMAR} shown in Section \ref{subsec:signature} and places the
+obtained term in the \texttt{input} attribute.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [in] :
+      [QIL, < input : empty, AtS >, QIL']
+   => [nil, < input : getTerm(metaParse(SGRAMMAR, QIL, '@Input@)), AtS >, QIL']
+   if QIL =/= nil /\ metaParse(SGRAMMAR, QIL, '@Input@) :: ResultPair .
+
+***(%
+\end{verbatim}
+}
+
+If there is no parse in \texttt{SGRAMMAR} for the input, a message indicating
+where is the error is prompted to the user.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [in-noParse] :
+      [QIL, < output : nil, AtS >, QIL']
+   => [nil,
+       < output : ('\r 'Warning:
+                 printSyntaxError(metaParse(SGRAMMAR, QIL, '@Input@), QIL)
+                 '\n
+                 '\r 'Error: '\o 'No 'parse 'for 'input. '\n), AtS >,
+       QIL']
+   if QIL =/= nil /\
+      noParse(N) := metaParse(SGRAMMAR, QIL, '@Input@) .
+
+***(%
+\end{verbatim}
+}
+
+\noindent where \texttt{printSyntaxError} traverses the input given by
+the user in order to point out the source of the error.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  op printSyntaxError : [ResultPair?] QidList -> QidList .
+  eq printSyntaxError(noParse(N), QIL)
+    = '\r 'Parse 'error 'in '\o '\s printN(N + 1, QIL) '\r '<---*HERE* '\o .
+  eq printSyntaxError(ambiguity(RP, RP'), QIL)
+    = '\r 'Ambiguous 'parsing 'for '\o '\s QIL '\o .
+  eq printSyntaxError(RP?, QIL) = QIL [owise] .
+
+  op printN : Nat QidList -> QidList .  *** first N qid's in a qidList
+  eq printN(N, nil) = nil .
+  eq printN(0, QIL) = nil .
+  eq printN(s(N), Q QIL) = Q printN(N, QIL) .
+
+***(%
+\end{verbatim}
+}
+
+The message error if the input is ambiguous is put by the rule
+\texttt{in-ambiguous}.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [in-ambiguous] :
+      [QIL, < output : nil, AtS >, QIL']
+   => [nil,
+       < output :  ('\r 'Error: 'Ambiguous 'input. '\n), AtS >,
+       QIL']
+   if QIL =/= nil /\
+      ambiguity(RP, RP') := metaParse(SGRAMMAR, QIL, '@Input@) .
+
+***(%
+\end{verbatim}
+}
+
+Finally, the rule \texttt{out} is in charge of placing the output
+stream in the third component of the loop.
+
+{\codesize
+\begin{verbatim}
+%)
+
+  crl [out] :
+      [QIL, < output : QIL', AtS >, QIL'']
+   => [QIL, < output : nil, AtS >, (QIL'' QIL')]
+   if QIL' =/= nil .
+endm
+
+
+***(%
+\end{verbatim}
+}
+
+The command \texttt{init-plural} initiates the input/output loop.
+
+{\codesize
+\begin{verbatim}
+%)
+
+loop init-plural .
+
+set print conceal on .
+*** print conceal searchTree`:_ .
+print conceal path`:_ .
+print conceal treeMap`:_ .
+print conceal mod_is_sorts_._____endm .
+print conceal fmod_is_sorts_.____endfm .
+
+***(%
+\end{verbatim}
+}
+%)
+
+
+
+

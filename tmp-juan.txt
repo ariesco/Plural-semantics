@@ -1,0 +1,552 @@
+DEPURAR:
+
+set trace on . 
+set print conceal on .
+print conceal mod_is_sorts_._____endm .
+print conceal fmod_is_sorts_.____endfm .
+
+set show advisories off .
+set show loop stats off .
+set show loop timing off . 
+
+
+Muestra el estado del bucle 
+cont . 
+
+(plural EXAMPLE4 is
+  branches -> madrid .
+  branches -> sevilla .
+  employees(madrid) -> e(pepe, men, clerk) .
+  employees(madrid) -> e(paco, men, clerk) .
+  employees(sevilla) -> e(lola, women, clerk) .
+  employees(sevilla) -> e(jaime, women, clerk) .
+  twoclerks -> find(employees(branches)) .
+  find(e(N,S,clerk)) -> p(N,N) .
+endp)
+
+rl 'branches.Exp => 'madrid.Exp [none] .
+rl 'branches.Exp => 'sevilla.Exp [none] .
+rl 'twoclerks.Exp => 'find['employees['branches.Exp]] [none] .
+rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+rl 'employees['madrid.Exp] => 'e['paco.Exp,'men.Exp,'clerk.Exp] [none] .
+rl 'employees['madrid.Exp] => 'e['pepe.Exp,'men.Exp,'clerk.Exp] [none] .
+rl 'employees['sevilla.Exp] => 'e['jaime.Exp,'women.Exp,'clerk.Exp] [none] .
+rl 'employees['sevilla.Exp] => 'e['lola.Exp,'women.Exp,'clerk.Exp] [none] .
+rl 'find['V@#$0:Exp] => 'if_then_['match7['V@#$0:Exp],'p['project7-0-0['V@#$0:Exp],'project7-0-0['V@#$0:Exp]]] [none] .
+rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+rl 'match7['e['N:Exp,'S:Exp,'clerk.Exp]] => 'tt.Exp [label('match7)] .
+rl 'project7-0-0['e['N:Exp,'S:Exp,'clerk.Exp]] => 'N:Exp [label('project7-0-0)] .
+
+*** Tipos de lados izdos
+ vars H F C : Qid .
+ vars TL TL' : TermList .
+ vars T T' : Term .
+ var  AtS : AttrSet .
+ var  Ct : Constant .
+ var  V : Variable .
+
+
+rl V => T' [ AtS ] .
+rl V [ TL ]=> T' [ AtS ] .
+rl Ct => T' [ AtS ] .
+rl (H [ TL ]) => T' [ AtS ] .
+
+***  red ('\n 'No 'more 'results) .
+
+(plural Ok1 is
+  f(X) -> h(X) .
+  h(z) -> s(z) .
+endp)
+
+(plural OkParallel is
+  or(tt, X) -> tt .
+  or(X, tt) -> tt .
+  or(ff, X) -> X .
+endp)
+
+(plural EXAMPLE-Bug1 is
+   f(X) -> X .
+   g(f(X)) -> X .
+endp)
+
+(plural EXAMPLE-Bug2 is
+   g(X, X) -> X .
+endp)
+
+(plural EXAMPLE-Bug3 is
+   f(X) -> c(X, Y) .
+endp)
+
+(plural EXAMPLE-Bug4 is
+   X -> c(X) .
+endp)
+
+(plural EXAMPLE-Bug5 is
+   X(0) -> c(X) .
+endp)
+
+ red metaMatch( mod 'OkParallel is
+   protecting 'EXT-BOOL .
+   protecting 'QID .
+   sorts 'Exp .
+   subsort 'Nat < 'Exp .
+  subsort 'Qid < 'Exp .
+   op '_?_ : 'Exp 'Exp -> 'Exp [assoc comm] .
+   op 'cterm : 'Exp -> 'Bool [none] .
+   op 'ff : nil -> 'Exp [none] .
+   op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+   op 'or : 'Exp 'Exp -> 'Exp [none] .
+   op 'tt : nil -> 'Exp [none] .
+   none
+   eq 'cterm['E:Exp] = 'true.Bool [owise] .
+   eq 'cterm['N:Nat] = 'true.Bool [none] .
+   eq 'cterm['ff.Exp] = 'true.Bool [none] .
+   eq 'cterm['tt.Exp] = 'true.Bool [none] .
+   eq 'cterm['if_then_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+   eq 'cterm['or['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+   rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+   rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+   rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .
+   rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .
+   rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .
+ endm, 'or['X:Exp, 'tt.Exp], 'or['X:Exp, 'tt.Exp], nil, 0) .
+
+ red metaMatch( mod 'OkParallel is
+   protecting 'EXT-BOOL .
+   protecting 'QID .
+   sorts 'Exp .
+   subsort 'Nat < 'Exp .
+   subsort 'Qid < 'Exp .
+   op '_?_ : 'Exp 'Exp -> 'Exp [assoc comm] .
+   op 'cterm : 'Exp -> 'Bool [none] .
+   op 'ff : nil -> 'Exp [none] .
+   op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+   op 'or : 'Exp 'Exp -> 'Exp [none] .
+   op 'tt : nil -> 'Exp [none] .
+   none
+   eq 'cterm['E:Exp] = 'true.Bool [owise] .
+   eq 'cterm['N:Nat] = 'true.Bool [none] .
+   eq 'cterm['ff.Exp] = 'true.Bool [none] .
+   eq 'cterm['tt.Exp] = 'true.Bool [none] .
+   eq 'cterm['if_then_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+   eq 'cterm['or['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+   rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+   rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+   rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .
+   rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .
+   rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .
+ endm, 'or['X:Exp, 'ff.Exp], 'or['X:Exp, 'tt.Exp], nil, 0) .
+
+ red metaMatch( mod 'OkParallel is
+   protecting 'EXT-BOOL .
+   protecting 'QID .
+   sorts 'Exp .
+   subsort 'Nat < 'Exp .
+   subsort 'Qid < 'Exp .
+   op '_?_ : 'Exp 'Exp -> 'Exp [assoc comm] .
+   op 'cterm : 'Exp -> 'Bool [none] .
+   op 'ff : nil -> 'Exp [none] .
+   op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+   op 'or : 'Exp 'Exp -> 'Exp [none] .
+   op 'tt : nil -> 'Exp [none] .
+   none
+   eq 'cterm['E:Exp] = 'true.Bool [owise] .
+   eq 'cterm['N:Nat] = 'true.Bool [none] .
+   eq 'cterm['ff.Exp] = 'true.Bool [none] .
+   eq 'cterm['tt.Exp] = 'true.Bool [none] .
+   eq 'cterm['if_then_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+   eq 'cterm['or['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+   rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+   rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+   rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .
+   rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .
+   rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .
+ endm, 'or['X:Exp, 'Y:Exp], 'or['X:Exp, 'tt.Exp], nil, 0) .
+
+red MDTMap( mod 'Ok2 is
+  protecting 'EXT-BOOL .
+  protecting 'QID .
+  sorts 'Exp .
+  subsort 'Nat < 'Exp .
+  subsort 'Qid < 'Exp .
+  op '_?_ : 'Exp 'Exp -> 'Exp [assoc comm] .
+  op 'coin : nil -> 'Exp [none] .
+  op 'cterm : 'Exp -> 'Bool [none] .
+  op 'f : 'Exp -> 'Exp [none] .
+  op 'ff : nil -> 'Exp [none] .
+  op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+  op 's : 'Exp -> 'Exp [none] .
+  op 'tt : nil -> 'Exp [none] .
+  op 'z : nil -> 'Exp [none] .
+  none
+  eq 'cterm['E:Exp] = 'true.Bool [owise] .
+  eq 'cterm['N:Nat] = 'true.Bool [none] .
+  eq 'cterm['coin.Exp] = 'false.Bool [none] .
+  eq 'cterm['ff.Exp] = 'true.Bool [none] .
+  eq 'cterm['tt.Exp] = 'true.Bool [none] .
+  eq 'cterm['z.Exp] = 'true.Bool [none] .
+  eq 'cterm['f['V@#$0:Exp]] = 'false.Bool [none] .
+  eq 'cterm['if_then_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+  eq 'cterm['s['V@#$0:Exp]] = 'cterm['V@#$0:Exp] [none] .
+  rl 'coin.Exp => '0.Zero [none] .
+  rl 'coin.Exp => 's_['0.Zero] [none] .
+  rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+  rl 'f['X:Exp] => 'z.Exp [none] .
+  rl 'f['X:Exp] => 's['z.Exp] [none] .
+  rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+endm) .
+
+
+red MDTMap( mod 'OkParallel is
+   protecting 'EXT-BOOL .
+   protecting 'QID .
+   sorts 'Exp .
+   subsort 'Nat < 'Exp .
+   subsort 'Qid < 'Exp .
+   op '_?_ : 'Exp 'Exp -> 'Exp [assoc comm] .
+   op 'cterm : 'Exp -> 'Bool [none] .
+   op 'ff : nil -> 'Exp [none] .
+   op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+   op 'or : 'Exp 'Exp -> 'Exp [none] .
+   op 'tt : nil -> 'Exp [none] .
+   none
+   eq 'cterm['E:Exp] = 'true.Bool [owise] .
+   eq 'cterm['N:Nat] = 'true.Bool [none] .
+   eq 'cterm['ff.Exp] = 'true.Bool [none] .
+   eq 'cterm['tt.Exp] = 'true.Bool [none] .
+   eq 'cterm['if_then_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+   eq 'cterm['or['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+   rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+   rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+   rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .
+   rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .
+   rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .
+ endm) .
+
+constructMDT : Module LazyNatList Map{Qid, Nat} Term RuleSet -> Pair{LazyNatList, Mdt} . 
+constructMDTF : Module LazyNatList Map{Qid, Nat} Qid RuleSet -> Pair{LazyNatList, Mdt} .
+
+MALO
+red constructMDT(mod 'OkParallel is
+   protecting 'EXT-BOOL .
+   protecting 'QID .
+   sorts 'Exp .
+   subsort 'Nat < 'Exp .
+   subsort 'Qid < 'Exp .
+   op '_?_ : 'Exp 'Exp -> 'Exp [assoc comm] .
+   op 'cterm : 'Exp -> 'Bool [none] .
+   op 'ff : nil -> 'Exp [none] .
+   op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+   op 'or : 'Exp 'Exp -> 'Exp [none] .
+   op 'tt : nil -> 'Exp [none] .
+   none
+   eq 'cterm['E:Exp] = 'true.Bool [owise] .
+   eq 'cterm['N:Nat] = 'true.Bool [none] .
+   eq 'cterm['ff.Exp] = 'true.Bool [none] .
+   eq 'cterm['tt.Exp] = 'true.Bool [none] .
+   eq 'cterm['if_then_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+   eq 'cterm['or['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+   rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+   rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+   rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .
+   rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .
+   rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .
+ endm, from(20), ('_?_ |-> 2, 'ff.Exp |-> 0, 'if_then_ |-> 2, 'or |-> 2, 'tt.Exp |-> 0) , 'or['V#@$T0:Exp,'V#@$T1:Exp], (rl 'or['tt.Exp,'#1:Exp] => 'tt.Exp [none] .) (rl 'or['tt.Exp,'tt.Exp] => 'tt.Exp [none] .) ) .
+
+red loopPosConstructMDTc(mod 'OkParallel is
+  protecting 'EXT-BOOL .
+  protecting 'QID .
+  sorts 'Exp .
+  subsort 'Nat < 'Exp .
+  subsort 'Qid < 'Exp .
+  op '_?_ : 'Exp 'Exp -> 'Exp [assoc comm] .
+  op 'cterm : 'Exp -> 'Bool [none] .
+  op 'ff : nil -> 'Exp [none] .
+  op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+  op 'or : 'Exp 'Exp -> 'Exp [none] .
+  op 'tt : nil -> 'Exp [none] .
+  none
+  eq 'cterm['E:Exp] = 'true.Bool [owise] .
+  eq 'cterm['N:Nat] = 'true.Bool [none] .
+  eq 'cterm['ff.Exp] = 'true.Bool [none] .
+  eq 'cterm['tt.Exp] = 'true.Bool [none] .
+  eq 'cterm['if_then_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+  eq 'cterm['or['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+  rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+  rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+  rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .
+  rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .
+  rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .
+endm, 20 : from(21), ('_?_ |-> 2, 'ff.Exp |-> 0, 'if_then_ |-> 2, 'or |-> 2, 'tt.Exp |-> 0), 'tt.Exp, 1, 'or['V#@$T0:Exp,'V#@$T1:Exp], rl 'or['tt.Exp,'V#@$T1] => 'tt.Exp [none] . rl 'or['tt.Exp,'tt.Exp] => 'tt.Exp [none] .) .
+
+
+?????
+Warning: unsafe variable name #1:Exp in unification problem.
+?????
+
+BUENO
+red constructMDT(mod 'OkParallel is
+   protecting 'EXT-BOOL .
+   protecting 'QID .
+   sorts 'Exp .
+   subsort 'Nat < 'Exp .
+   subsort 'Qid < 'Exp .
+   op '_?_ : 'Exp 'Exp -> 'Exp [assoc comm] .
+   op 'cterm : 'Exp -> 'Bool [none] .
+   op 'ff : nil -> 'Exp [none] .
+   op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+   op 'or : 'Exp 'Exp -> 'Exp [none] .
+   op 'tt : nil -> 'Exp [none] .
+   none
+   eq 'cterm['E:Exp] = 'true.Bool [owise] .
+   eq 'cterm['N:Nat] = 'true.Bool [none] .
+   eq 'cterm['ff.Exp] = 'true.Bool [none] .
+   eq 'cterm['tt.Exp] = 'true.Bool [none] .
+   eq 'cterm['if_then_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+   eq 'cterm['or['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+   rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+   rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+   rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .
+   rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .
+   rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .
+ endm, from(20), ('_?_ |-> 2, 'ff.Exp |-> 0, 'if_then_ |-> 2, 'or |-> 2, 'tt.Exp |-> 0), 'or['V#@$T0:Exp,'V#@$T1:Exp], (rl 'or['tt.Exp,'V#@$T1:Exp] => 'tt.Exp [none] .) (rl 'or['tt.Exp,'tt.Exp] => 'tt.Exp [none] .) ) .
+
+'#1
+'V#@$T1
+
+red matchingRules(mod 'OkParallel is
+   protecting 'EXT-BOOL .
+   protecting 'QID .
+   sorts 'Exp .
+   subsort 'Nat < 'Exp .
+   subsort 'Qid < 'Exp .
+   op '_?_ : 'Exp 'Exp -> 'Exp [assoc comm] .
+   op 'cterm : 'Exp -> 'Bool [none] .
+   op 'ff : nil -> 'Exp [none] .
+   op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+   op 'or : 'Exp 'Exp -> 'Exp [none] .
+   op 'tt : nil -> 'Exp [none] .
+   none
+   eq 'cterm['E:Exp] = 'true.Bool [owise] .
+   eq 'cterm['N:Nat] = 'true.Bool [none] .
+   eq 'cterm['ff.Exp] = 'true.Bool [none] .
+   eq 'cterm['tt.Exp] = 'true.Bool [none] .
+   eq 'cterm['if_then_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+   eq 'cterm['or['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+   rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+   rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+   rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .
+   rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .
+   rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .
+ endm, 'or['V#@$T0:Exp,'V#@$T1:Exp],(rl 'or['tt.Exp,'V#@$T1:Exp] => 'tt.Exp [none] .) (rl 'or['tt.Exp,'tt.Exp] => 'tt.Exp [none] .) ) .
+
+(rl 'or['tt.Exp,'tt.Exp] => 'tt.Exp [none] .)
+
+ red constructMDTF(modOr,from(0), arOr, 'or,  rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] . rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] . rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] . ) .
+red constructMDTF(mod 'OkParallel is
+   protecting 'EXT-BOOL .
+   protecting 'QID .
+   sorts 'Exp .
+   subsort 'Nat < 'Exp .
+   subsort 'Qid < 'Exp .
+   op '_?_ : 'Exp 'Exp -> 'Exp [assoc comm] .
+   op 'cterm : 'Exp -> 'Bool [none] .
+   op 'ff : nil -> 'Exp [none] .
+   op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+   op 'or : 'Exp 'Exp -> 'Exp [none] .
+   op 'tt : nil -> 'Exp [none] .
+   none
+   eq 'cterm['E:Exp] = 'true.Bool [owise] .
+   eq 'cterm['N:Nat] = 'true.Bool [none] .
+   eq 'cterm['ff.Exp] = 'true.Bool [none] .
+   eq 'cterm['tt.Exp] = 'true.Bool [none] .
+   eq 'cterm['if_then_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+   eq 'cterm['or['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+   rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+   rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+   rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .
+   rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .
+   rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .
+ endm, from(0), ('_?_ |-> 2, 'ff.Exp |-> 0, 'if_then_ |-> 2, 'or |-> 2, 'tt.Exp |-> 0), 'or, rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] . rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] . rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] . ) .
+
+red matchingRulesRev(mod 'OkParallel is
+   protecting 'EXT-BOOL .
+   protecting 'QID .
+   sorts 'Exp .
+   subsort 'Nat < 'Exp .
+   subsort 'Qid < 'Exp .
+   op '_?_ : 'Exp 'Exp -> 'Exp [assoc comm] .
+   op 'cterm : 'Exp -> 'Bool [none] .
+   op 'ff : nil -> 'Exp [none] .
+   op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+   op 'or : 'Exp 'Exp -> 'Exp [none] .
+   op 'tt : nil -> 'Exp [none] .
+   none
+   eq 'cterm['E:Exp] = 'true.Bool [owise] .
+   eq 'cterm['N:Nat] = 'true.Bool [none] .
+   eq 'cterm['ff.Exp] = 'true.Bool [none] .
+   eq 'cterm['tt.Exp] = 'true.Bool [none] .
+   eq 'cterm['if_then_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+   eq 'cterm['or['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+   rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+   rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+   rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .
+   rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .
+   rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .
+ endm, 'or ['tt.Exp, 'Y:Exp], rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .
+rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .
+rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] . ) .
+
+
+red unifyingRules(mod 'OkParallel is
+   protecting 'EXT-BOOL .
+   protecting 'QID .
+   sorts 'Exp .
+   subsort 'Nat < 'Exp .
+   subsort 'Qid < 'Exp .
+   op '_?_ : 'Exp 'Exp -> 'Exp [assoc comm] .
+   op 'cterm : 'Exp -> 'Bool [none] .
+   op 'ff : nil -> 'Exp [none] .
+   op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+   op 'or : 'Exp 'Exp -> 'Exp [none] .
+   op 'tt : nil -> 'Exp [none] .
+   none
+   eq 'cterm['E:Exp] = 'true.Bool [owise] .
+   eq 'cterm['N:Nat] = 'true.Bool [none] .
+   eq 'cterm['ff.Exp] = 'true.Bool [none] .
+   eq 'cterm['tt.Exp] = 'true.Bool [none] .
+   eq 'cterm['if_then_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+   eq 'cterm['or['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+   rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+   rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+   rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .
+   rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .
+   rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .
+ endm, 'or ['tt.Exp, 'Y:Exp], rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .
+rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .
+rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .  ) .
+
+red metaUnify(mod 'OkParallel is
+   protecting 'EXT-BOOL .
+   protecting 'QID .
+   sorts 'Exp .
+   subsort 'Nat < 'Exp .
+   subsort 'Qid < 'Exp .
+   op '_?_ : 'Exp 'Exp -> 'Exp [assoc comm] .
+   op 'cterm : 'Exp -> 'Bool [none] .
+   op 'ff : nil -> 'Exp [none] .
+   op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+   op 'or : 'Exp 'Exp -> 'Exp [none] .
+   op 'tt : nil -> 'Exp [none] .
+   none
+   eq 'cterm['E:Exp] = 'true.Bool [owise] .
+   eq 'cterm['N:Nat] = 'true.Bool [none] .
+   eq 'cterm['ff.Exp] = 'true.Bool [none] .
+   eq 'cterm['tt.Exp] = 'true.Bool [none] .
+   eq 'cterm['if_then_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+   eq 'cterm['or['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+   rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+   rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+   rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .
+   rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .
+   rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .
+ endm, 'or ['tt.Exp, 'Y:Exp] =? 'or ['X:Exp,'tt.Exp], 0, 0) .
+
+red metaDisjointUnify(mod 'OkParallel is
+   protecting 'EXT-BOOL .
+   protecting 'QID .
+   sorts 'Exp .
+   subsort 'Nat < 'Exp .
+   subsort 'Qid < 'Exp .
+   op '_?_ : 'Exp 'Exp -> 'Exp [assoc comm] .
+   op 'cterm : 'Exp -> 'Bool [none] .
+   op 'ff : nil -> 'Exp [none] .
+   op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+   op 'or : 'Exp 'Exp -> 'Exp [none] .
+   op 'tt : nil -> 'Exp [none] .
+   none
+   eq 'cterm['E:Exp] = 'true.Bool [owise] .
+   eq 'cterm['N:Nat] = 'true.Bool [none] .
+   eq 'cterm['ff.Exp] = 'true.Bool [none] .
+   eq 'cterm['tt.Exp] = 'true.Bool [none] .
+   eq 'cterm['if_then_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+   eq 'cterm['or['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+   rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+   rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+   rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .
+   rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .
+   rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .
+ endm, 'or ['tt.Exp, 'Y:Exp] =? 'or ['tt.Exp, 'X:Exp], 0, 0) .
+  
+red metaUnify(mod 'OkParallel is
+   protecting 'EXT-BOOL .
+   protecting 'QID .
+   sorts 'Exp .
+   subsort 'Nat < 'Exp .
+   subsort 'Qid < 'Exp .
+   op '_?_ : 'Exp 'Exp -> 'Exp [assoc comm] .
+   op 'cterm : 'Exp -> 'Bool [none] .
+   op 'ff : nil -> 'Exp [none] .
+   op 'if_then_ : 'Exp 'Exp -> 'Exp [frozen(2)] .
+   op 'or : 'Exp 'Exp -> 'Exp [none] .
+   op 'tt : nil -> 'Exp [none] .
+   none
+   eq 'cterm['E:Exp] = 'true.Bool [owise] .
+   eq 'cterm['N:Nat] = 'true.Bool [none] .
+   eq 'cterm['ff.Exp] = 'true.Bool [none] .
+   eq 'cterm['tt.Exp] = 'true.Bool [none] .
+   eq 'cterm['if_then_['E1:Exp,'E2:Exp]] = 'false.Bool [none] .
+   eq 'cterm['or['V@#$0:Exp,'V@#$1:Exp]] = 'false.Bool [none] .
+   rl '_?_['E:Exp,'E':Exp] => 'E:Exp [none] .
+   rl 'if_then_['tt.Exp,'E:Exp] => 'E:Exp [none] .
+   rl 'or['X:Exp,'tt.Exp] => 'tt.Exp [none] .
+   rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] .
+   rl 'or['tt.Exp,'X:Exp] => 'tt.Exp [none] .
+ endm, 'or ['tt.Exp, 'Y:Exp] =? 'or ['tt.Exp, 'X:Exp], 0, 0) .
+
+result UnificationPair: {
+        'X:Exp <- '#1:Exp ; 
+        'Y:Exp <- '#1:Exp,1}
+
+result Pair{RuleSet,RuleSet}: < rl 'or['tt.Exp,'#1:Exp] => 'tt.Exp [none] .
+rl 'or['tt.Exp,'tt.Exp] => 'tt.Exp [none] .,rl 'or['ff.Exp,'X:Exp] => 'X:Exp [none] . >
+
+PROBLEMA: umg es unico salvo renombramiento, q es lo q se esta haciendo aqui
+
+red constructMDTc(modOr, from(20), arOr, 'or['V#@$T0:Exp,'V#@$T1:Exp], rl 'or['tt.Exp,'V#@$1:Exp] => 'tt.Exp [none] . rl 'or['V#@$1:Exp,'tt.Exp] => 'tt.Exp [none] .  rl 'or['ff.Exp, 'V#@$1:Exp] => 'V#@$1:Exp [none] .) .
+red loopConstructMDTc(modOr, from(20), arOr, (1, 2), 'or['V#@$T0:Exp,'V#@$T1:Exp],  rl 'or['tt.Exp,'V#@$1:Exp] => 'tt.Exp [none] . rl 'or['V#@$1:Exp,'tt.Exp] => 'tt.Exp [none] .  rl 'or['ff.Exp, 'V#@$1:Exp] => 'V#@$1:Exp [none] . ) . 
+red loopPosConstructMDTc(modOr, from(20), arOr, 'ff.Exp ; 'tt.Exp, 1, 'or['V#@$T0:Exp,'V#@$T1:Exp], rl 'or['tt.Exp,'V#@$1:Exp] => 'tt.Exp [none] . rl 'or['V#@$1:Exp,'tt.Exp] => 'tt.Exp [none] .  rl 'or['ff.Exp, 'V#@$1:Exp] => 'V#@$1:Exp [none] .) .
+
+
+--- Ya va ok
+red loopPosConstructMDTc(modOr, from(20), arOr, 'tt.Exp, 1, 'or['V#@$T0:Exp,'V#@$T1:Exp], rl 'or['tt.Exp,'V#@$1:Exp] => 'tt.Exp [none] . rl 'or['V#@$1:Exp,'tt.Exp] => 'tt.Exp [none] .  rl 'or['ff.Exp, 'V#@$1:Exp] => 'V#@$1:Exp [none] .) .
+
+red loopPosConstructMDTc(modOr, from(20), arOr, 'tt.Exp, 1, 'or['V#@$T0:Exp,'V#@$T1:Exp], rl 'or['tt.Exp,'V#@$1:Exp] => 'tt.Exp [none] . rl 'or['V#@$1:Exp,'tt.Exp] => 'tt.Exp [none] .  rl 'or['ff.Exp, 'V#@$1:Exp] => 'V#@$1:Exp [none] .) .
+     red flatApp(from(20), arOr, 'tt.Exp) .
+     red replace('or['V#@$T0:Exp,'V#@$T1:Exp], 1 , 'tt.Exp) .
+     red unifyingRules(modOr,  'or['tt.Exp,'V#@$T1:Exp],  rl 'or['tt.Exp,'V#@$1:Exp] => 'tt.Exp [none] . rl 'or['V#@$1:Exp,'tt.Exp] => 'tt.Exp [none] .  rl 'or['ff.Exp, 'V#@$1:Exp] => 'V#@$1:Exp [none] .  ) .
+    red constructMDT(modOr, from(20), arOr, 'or['tt.Exp,'V#@$T1:Exp],  rl 'or['tt.Exp,'V#@$T1:Exp] => 'tt.Exp [none] . rl 'or['tt.Exp,'tt.Exp] => 'tt.Exp [none] .) .
+
+     
+
+red DPRm(rl 'or['tt.Exp,'V#@$T1:Exp] => 'tt.Exp [none] . rl 'or['tt.Exp,'tt.Exp] => 'tt.Exp [none] ., 'or['tt.Exp,'V#@$T1:Exp] ) .
+red matchingRules(modOr, 'or['tt.Exp,'V#@$T1:Exp], rl 'or['tt.Exp,'V#@$T1:Exp] => 'tt.Exp [none] . rl 'or['tt.Exp,'tt.Exp] => 'tt.Exp [none] . ) .
+red constructMDTb(modOr, from(20), arOr, 'or['tt.Exp,'V#@$T1:Exp],  rl 'or['tt.Exp,'V#@$T1:Exp] => 'tt.Exp [none] ., rl 'or['tt.Exp,'tt.Exp] => 'tt.Exp [none] . ) .
+red constructMDT(modOr, from(20), arOr, 'or['tt.Exp,'V#@$T1:Exp],  rl 'or['tt.Exp,'tt.Exp] => 'tt.Exp [none] .) .
+
+red constructMDTc(modOr, from(20), arOr, 'or['tt.Exp,'V#@$T1:Exp],  rl 'or['tt.Exp,'tt.Exp] => 'tt.Exp [none] .) .
+red loopPosConstructMDTc(modOr, from(20), arOr, 'tt.Exp, 2,  'or['tt.Exp,'V#@$T1:Exp],  rl 'or['tt.Exp,'tt.Exp] => 'tt.Exp [none] .) .
+red replace('or['tt.Exp,'V#@$T1:Exp], 2 , 'tt.Exp) .
+red unifyingRules(modOr, 'or['tt.Exp,'tt.Exp],  rl 'or['tt.Exp,'tt.Exp] => 'tt.Exp [none] .) .
+
+DEPURAR:
+set trace on . 
+set print conceal on .
+print conceal mod_is_sorts_._____endm .
+print conceal fmod_is_sorts_.____endfm .
+
+set show advisories off .
+set show loop stats off .
+set show loop timing off . 
+
+print: pag 87 del manual de maude

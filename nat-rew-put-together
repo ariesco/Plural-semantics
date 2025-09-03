@@ -1,0 +1,1 @@
+cat aux-modules.maude multiset.maude standalone-nat-rew.maude > natural-rewriting.maude

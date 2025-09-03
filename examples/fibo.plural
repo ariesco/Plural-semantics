@@ -1,0 +1,9 @@
+(plural FIBO is
+  fibo(z) -> z .
+  fibo(s(z)) -> s(z) .
+  fibo(s(s(N))) -> add(fibo(N), fibo(s(N))) .
+
+  add(z,X) -> X .
+  add(s(X),Y) -> s(add(X,Y)) .
+
+endp)

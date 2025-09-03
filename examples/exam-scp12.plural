@@ -1,0 +1,75 @@
+(plural EXAMS is
+
+  team1 -> fry ? lyla ? bender ? amy .
+  subjects1 -> knows(fry, t1.1 ? t1.3) ? knows(lyla, t1.2 ? t3) ?
+               knows(bender, t2.1 ? t4) .
+
+  knowsAll is sp .
+  knowsAll(Questions, Knowledge) -> listInSet(Questions, Knowledge) .
+
+  listInSet is sp .
+  listInSet(nil, K) -> tt .
+  listInSet(cons(K1, Ks), K) -> if eq(K, K1) then listInSet(Ks, K)  .
+
+  mark is plural .
+  mark(q1, K) -> if knowsAll(cons(t1.1, cons(t1.2, nil)), K) then s(z) .
+  mark(q2.1, K) -> if knowsAll(cons(t2.1, cons(t1.3, nil)), K) then s(z) .
+  mark(q2.2, K) -> if knowsAll(cons(t3.1, cons(t1.3, nil)), K) then s(z) .
+  mark(q3.1, K) -> if knowsAll(cons(t3, nil), K) then s(z) .
+  mark(q3.2, K) -> if knowsAll(cons(t4, nil), K) then s(z) .
+  mark(q4.1, K) -> if knowsAll(cons(t6, nil), K) then s(z) .
+  mark(q4.1, K) -> if knowsAll(cons(t5, nil), K) then s(z) .
+  mark(q5, K) -> s(z) .
+  mark(q6, K) -> z .
+
+  eq(fry, fry) -> tt .
+  eq(lyla, lyla) -> tt .
+  eq(bender, bender) -> tt .
+  eq(amy, amy) -> tt .
+  eq(t1.1, t1.1) -> tt .
+  eq(t1.2, t1.2) -> tt .
+  eq(t2.1, t2.1) -> tt .
+  eq(t1.3, t1.3) -> tt .
+  eq(t3.1, t3.1) -> tt .
+  eq(t3, t3) -> tt .
+  eq(t4, t4) -> tt .
+  eq(t6, t6) -> tt .
+  eq(t5, t5) -> tt .
+
+  answer is singular .
+  answer(Student, knows(S, Subject)) -> if eq(Student, S) then Subject .
+
+  markAll is sp .
+  markAll(nil, K) -> nil .
+  markAll(cons(Q, Qs), K) -> cons(mark(Q, K), markAll(Qs, K)) .
+
+  examine is spp .
+  examine(Exam,Team,Studies) ->
+   p(Exam,sum(markAll(Exam,answer(Team,Studies)))) .
+
+  sum(nil) -> z .
+  sum(cons(X, Xs)) -> add(X, sum(Xs)) .
+
+  passes is spp .
+  passes(Exam,Team,Studies) -> minMark(examine(someElems(Exam), Team, Studies)) .
+
+  add is singular .
+  add(z, X) -> X .
+  add(s(N), M) -> s(add(N, M)) .
+
+  minMark(p(Exam, s(s(s(s(s(N))))))) -> p(Exam, s(s(s(s(s(N)))))) .
+
+  someElems(Xs) -> nil .
+  someElems(cons(X, Xs)) -> cons(X, someElems(Xs)) .
+  someElems(cons(X, Xs)) -> someElems(Xs) .
+
+  exams -> cons(q1,cons(q2.1,cons(q3.2,cons(q4.1, cons(q5,nil)))))
+         ? cons(q1,cons(q2.1,cons(q3.2,cons(q4.2, cons(q6,nil)))))
+         ? cons(q1,cons(q2.2,cons(q3,cons(q4.1, cons(q5,nil))))) .
+endp)
+
+eof
+
+(eval passes(exams, team1, subjects1) .)
+
+(eval passes(exams, team1, subjects1 ? knows(lyla, t5)) .)

@@ -1,0 +1,57 @@
+(plural puzzle is
+
+ constant(z) -> tt .
+ constant(s(X)) -> tt .
+ constant(o) -> tt .
+
+--- piece(c(s(X), c(s(s(Y)), nil))) -> tt . 
+ --- representa un ladrillo q ocupa dos fichas
+ --- las figuras siempre se dan alineadas en horizontal
+ piece(X, Y) -> c(p(X,Y), c(p(s(X), Y), nil)) . 
+
+ xdim -> s(s(s(s(z)))) .
+ ydim -> s(s(s(s(z)))) .
+
+ in(p(X, Y)) -> and(leq(X, xdim), leq(Y, ydim)) .
+ 
+--- put(X,Y) -> if and(leq(X, xdim), in(piece(X,Y))
+
+ enumFrom(X) -> X ? enumFrom(s(X)) .
+ eq(z,z) -> tt .
+ eq(z, s(X)) -> ff .
+ eq(s(X), z) -> ff .
+ eq(s(X), s(Y)) -> eq(X,Y) .
+ leq(z, X) -> tt .
+ leq(s(X), z) -> ff .
+ leq(s(X), s(Y)) -> leq(X, Y) .
+ not(tt) -> ff .
+ not(ff) -> tt .
+ and(tt, tt) -> tt .
+ and(ff, X) -> ff .
+ and(X, ff) -> ff .
+ enumFromTo(X,Y) -> if not(eq(X,Y)) then X ? enumFromTo(s(X), Y) .
+endp)
+
+***(
+(eval  c(c(o, c(o, c(o, c(o, nil)))),c(c(o, c(o, c(o, c(o, nil)))),c(c(o, c(o, c(o, c(o, nil)))),c(c(o, c(o, c(o, c(o, nil)))),nil)))) .)
+
+tablero inicial       
+ o o o o           c(c(o, c(o, c(o, c(o, nil)))),              t(o,o,o,o,
+ o o o o    --->   c(c(o, c(o, c(o, c(o, nil)))),        --->    o,o,o,o,
+ o o o o           c(c(o, c(o, c(o, c(o, nil)))),                o,o,o,o,
+ o o o o           c(c(o, c(o, c(o, c(o, nil)))),nil))))         o,o,o,o)
+
+fichas
+              ? ? ?
+xxx   ---->   x x x  ---> f(1), f(1), f(1)
+              ? ? ?
+ x                    --> f(2)             
+xx
+
+x
+xxx
+
+ x
+xxx
+ x
+)
